@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   Modal,
   Switch,
   ScrollView,
+  Animated,
+  Dimensions,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
@@ -18,13 +20,52 @@ type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
 };
 
+const { width, height } = Dimensions.get('window');
+
+const CATEGORY_CHIPS = [
+  { emoji: '🐘', label: 'Animals', labelHe: 'בעלי חיים', color: '#FF6B6B' },
+  { emoji: '🌍', label: 'Countries', labelHe: 'מדינות', color: '#4ECDC4' },
+  { emoji: '🏙️', label: 'Cities', labelHe: 'ערים', color: '#45B7D1' },
+  { emoji: '🌿', label: 'Plants', labelHe: 'צמחים', color: '#26de81' },
+];
+
+const BLOBS = [
+  { x: -60, y: -40, size: 220, color: '#6C63FF', opacity: 0.55 },
+  { x: width - 120, y: 60, size: 180, color: '#FF6584', opacity: 0.45 },
+  { x: 30, y: height * 0.45, size: 160, color: '#43BCCD', opacity: 0.35 },
+  { x: width - 80, y: height * 0.6, size: 200, color: '#F7B731', opacity: 0.3 },
+  { x: width * 0.3, y: height * 0.8, size: 150, color: '#A55EEA', opacity: 0.4 },
+];
+
 export function HomeScreen({ navigation }: Props) {
   const { strings, settings, isRTL, setLanguage, setSoundEnabled, setTtsEnabled } =
     useAppSettings();
   const { dispatch } = useGame();
   const [settingsVisible, setSettingsVisible] = useState(false);
-
   const t = strings;
+
+  // Pulse animation for the logo
+  const pulse = useRef(new Animated.Value(1)).current;
+  // Slow drift for blobs
+  const blobDrift = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1.12, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1.0, duration: 900, useNativeDriver: true }),
+      ])
+    ).start();
+
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(blobDrift, { toValue: 1, duration: 4000, useNativeDriver: true }),
+        Animated.timing(blobDrift, { toValue: 0, duration: 4000, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
+
+  const blobY = blobDrift.interpolate({ inputRange: [0, 1], outputRange: [0, 18] });
 
   const handleNewGame = () => {
     dispatch({ type: 'RESET' });
@@ -33,18 +74,55 @@ export function HomeScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.safe}>
+      {/* Background */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        {BLOBS.map((b, i) => (
+          <Animated.View
+            key={i}
+            style={[
+              styles.blob,
+              {
+                left: b.x,
+                top: b.y,
+                width: b.size,
+                height: b.size,
+                borderRadius: b.size / 2,
+                backgroundColor: b.color,
+                opacity: b.opacity,
+                transform: [{ translateY: i % 2 === 0 ? blobY : Animated.multiply(blobY, -1) }],
+              },
+            ]}
+          />
+        ))}
+      </View>
+
       <ScrollView contentContainerStyle={styles.container} bounces={false}>
-        {/* Logo / Title */}
+        {/* Hero */}
         <View style={styles.hero}>
-          <Text style={styles.logo}>💥</Text>
+          <Animated.Text style={[styles.logo, { transform: [{ scale: pulse }] }]}>
+            💥
+          </Animated.Text>
           <Text style={styles.title}>{t.home.title}</Text>
           <Text style={styles.subtitle}>{t.home.subtitle}</Text>
+
+          {/* Category chips */}
+          <View style={styles.chips}>
+            {CATEGORY_CHIPS.map((c) => (
+              <View key={c.label} style={[styles.chip, { backgroundColor: c.color + '33', borderColor: c.color }]}>
+                <Text style={styles.chipEmoji}>{c.emoji}</Text>
+                <Text style={[styles.chipLabel, { color: c.color }]}>
+                  {settings.language === 'he' ? c.labelHe : c.label}
+                </Text>
+              </View>
+            ))}
+          </View>
         </View>
 
-        {/* Action buttons */}
+        {/* Buttons */}
         <View style={styles.actions}>
           <TouchableOpacity style={styles.primaryBtn} onPress={handleNewGame} activeOpacity={0.85}>
-            <Text style={styles.primaryBtnText}>🎮 {t.home.newGame}</Text>
+            <Text style={styles.primaryBtnEmoji}>🎮</Text>
+            <Text style={styles.primaryBtnText}>{t.home.newGame}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -52,7 +130,7 @@ export function HomeScreen({ navigation }: Props) {
             onPress={() => navigation.navigate('History')}
             activeOpacity={0.85}
           >
-            <Text style={styles.secondaryBtnText}>📜 {t.home.history}</Text>
+            <Text style={styles.secondaryBtnText}>📜  {t.home.history}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -60,7 +138,7 @@ export function HomeScreen({ navigation }: Props) {
             onPress={() => setSettingsVisible(true)}
             activeOpacity={0.85}
           >
-            <Text style={styles.secondaryBtnText}>⚙️ {t.home.settings}</Text>
+            <Text style={styles.secondaryBtnText}>⚙️  {t.home.settings}</Text>
           </TouchableOpacity>
         </View>
 
@@ -111,24 +189,23 @@ export function HomeScreen({ navigation }: Props) {
               isRTL={isRTL}
             />
 
-            {/* Language selection */}
             <Text style={[styles.settingLabel, isRTL && styles.rtlText]}>
               {t.settings.language}
             </Text>
-            <View style={styles.langRow}>
+            <View style={styles.langRowModal}>
               <TouchableOpacity
-                style={[styles.langBtn, settings.language === 'en' && styles.langBtnActive]}
+                style={[styles.langBtnModal, settings.language === 'en' && styles.langBtnModalActive]}
                 onPress={() => setLanguage('en')}
               >
-                <Text style={[styles.langBtnText, settings.language === 'en' && styles.langBtnTextActive]}>
+                <Text style={[styles.langBtnModalText, settings.language === 'en' && styles.langBtnModalTextActive]}>
                   🇺🇸 {t.settings.english}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.langBtn, settings.language === 'he' && styles.langBtnActive]}
+                style={[styles.langBtnModal, settings.language === 'he' && styles.langBtnModalActive]}
                 onPress={() => setLanguage('he')}
               >
-                <Text style={[styles.langBtnText, settings.language === 'he' && styles.langBtnTextActive]}>
+                <Text style={[styles.langBtnModalText, settings.language === 'he' && styles.langBtnModalTextActive]}>
                   🇮🇱 {t.settings.hebrew}
                 </Text>
               </TouchableOpacity>
@@ -169,67 +246,104 @@ function SettingRow({
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#6C63FF',
+    backgroundColor: '#0D0B1E',
+  },
+  blob: {
+    position: 'absolute',
   },
   container: {
     flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
-    paddingBottom: 40,
-    gap: 32,
+    paddingBottom: 48,
+    gap: 36,
   },
   hero: {
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   logo: {
-    fontSize: 80,
+    fontSize: 88,
+    marginBottom: 4,
   },
   title: {
-    fontSize: 48,
+    fontSize: 52,
     fontWeight: '900',
     color: '#fff',
     textAlign: 'center',
-    letterSpacing: -1,
+    letterSpacing: -1.5,
+    textShadowColor: 'rgba(108,99,255,0.8)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 24,
   },
   subtitle: {
-    fontSize: 18,
-    color: 'rgba(255,255,255,0.8)',
+    fontSize: 17,
+    color: 'rgba(255,255,255,0.65)',
     fontWeight: '600',
     textAlign: 'center',
   },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 12,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1.5,
+  },
+  chipEmoji: {
+    fontSize: 15,
+  },
+  chipLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
   actions: {
     width: '100%',
-    gap: 14,
+    gap: 12,
   },
   primaryBtn: {
-    backgroundColor: '#fff',
-    borderRadius: 18,
-    paddingVertical: 20,
+    backgroundColor: '#6C63FF',
+    borderRadius: 20,
+    paddingVertical: 22,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
+    shadowColor: '#6C63FF',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.55,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  primaryBtnEmoji: {
+    fontSize: 24,
   },
   primaryBtnText: {
-    color: '#6C63FF',
+    color: '#fff',
     fontSize: 22,
     fontWeight: '900',
+    letterSpacing: 0.3,
   },
   secondaryBtn: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     borderRadius: 18,
     paddingVertical: 16,
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.5)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.18)',
   },
   secondaryBtnText: {
-    color: '#fff',
-    fontSize: 18,
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 17,
     fontWeight: '700',
   },
   langRow: {
@@ -238,28 +352,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   langBtn: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 22,
     paddingVertical: 10,
     borderRadius: 24,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.5)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.25)',
   },
   langBtnActive: {
-    backgroundColor: '#fff',
-    borderColor: '#fff',
+    backgroundColor: 'rgba(108,99,255,0.4)',
+    borderColor: '#6C63FF',
   },
   langBtnText: {
-    color: 'rgba(255,255,255,0.8)',
+    color: 'rgba(255,255,255,0.6)',
     fontWeight: '700',
     fontSize: 15,
   },
   langBtnTextActive: {
-    color: '#6C63FF',
+    color: '#fff',
   },
   // Modal
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'flex-end',
   },
   modalCard: {
@@ -289,6 +403,30 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: '#374151',
+  },
+  langRowModal: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  langBtnModal: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+  },
+  langBtnModalActive: {
+    backgroundColor: '#6C63FF',
+    borderColor: '#6C63FF',
+  },
+  langBtnModalText: {
+    fontWeight: '700',
+    fontSize: 15,
+    color: '#374151',
+  },
+  langBtnModalTextActive: {
+    color: '#fff',
   },
   closeBtn: {
     backgroundColor: '#6C63FF',

@@ -9,12 +9,26 @@ const TTS_LOCALE: Record<Language, string> = {
   he: 'he-IL',
 };
 
-export function speakText(text: string, language: Language): void {
-  Speech.speak(text, {
+export type SpeakMood = 'normal' | 'excited' | 'sad';
+
+export function speakText(text: string, language: Language, mood: SpeakMood = 'normal'): void {
+  const options: Speech.SpeechOptions = {
     language: TTS_LOCALE[language],
-    rate: 0.9,
     onError: () => {},
-  });
+  };
+
+  if (mood === 'excited') {
+    options.pitch = 1.5;
+    options.rate = 1.3;
+  } else if (mood === 'sad') {
+    options.pitch = 0.6;
+    options.rate = 0.7;
+  } else {
+    options.pitch = 1.0;
+    options.rate = 0.9;
+  }
+
+  Speech.speak(text, options);
 }
 
 export function stopSpeaking(): void {

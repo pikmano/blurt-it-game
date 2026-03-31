@@ -184,9 +184,11 @@ export function GameScreen({ navigation }: Props) {
     timer.stop();
 
     if (settings.ttsEnabled) {
+      const mood = type === 'correct' ? 'excited' : 'sad';
       speakText(
         type === 'correct' ? t.tts.correct : type === 'timeout' ? t.tts.timeUp : t.tts.wrong,
         settings.language,
+        mood,
       );
     }
 
