@@ -40,6 +40,7 @@ const en = {
       animals: 'Animals',
       countries: 'Countries',
       cities: 'Cities',
+      plants: 'Plants',
     } as Record<Category, string>,
     listening: 'Listening...',
     typeAnswer: 'Type your answer',

@@ -4,7 +4,6 @@ import { Animated } from 'react-native';
 interface UseTimerOptions {
   durationSeconds: number;
   onExpire: () => void;
-  autoStart?: boolean;
 }
 
 interface UseTimerReturn {
@@ -13,81 +12,85 @@ interface UseTimerReturn {
   isRunning: boolean;
   start: () => void;
   stop: () => void;
-  reset: () => void;
 }
 
 /**
  * Countdown timer hook. Fires `onExpire` when time reaches 0.
- * `progress` is an Animated.Value from 1.0 (full) → 0.0 (empty)
- * suitable for driving a circular progress ring.
+ * `progress` is an Animated.Value from 1.0 (full) → 0.0 (empty).
+ *
+ * Safe to call `start()` multiple times — always clears the previous
+ * interval before starting a new one.
  */
-export function useTimer({
-  durationSeconds,
-  onExpire,
-  autoStart = false,
-}: UseTimerOptions): UseTimerReturn {
+export function useTimer({ durationSeconds, onExpire }: UseTimerOptions): UseTimerReturn {
   const [secondsLeft, setSecondsLeft] = useState(durationSeconds);
-  const [isRunning, setIsRunning] = useState(autoStart);
+  const [isRunning, setIsRunning] = useState(false);
+
   const progress = useRef(new Animated.Value(1)).current;
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const animRef = useRef<Animated.CompositeAnimation | null>(null);
-  const onExpireRef = useRef(onExpire);
 
-  // Keep onExpire ref fresh so callers don't need to memoize it
-  useEffect(() => {
-    onExpireRef.current = onExpire;
-  }, [onExpire]);
+  // Always read the latest callbacks/values via refs — avoids stale closures
+  const onExpireRef = useRef(onExpire);
+  useEffect(() => { onExpireRef.current = onExpire; }, [onExpire]);
+
+  const durationRef = useRef(durationSeconds);
+  useEffect(() => { durationRef.current = durationSeconds; }, [durationSeconds]);
 
   const stop = useCallback(() => {
-    if (intervalRef.current) {
+    if (intervalRef.current !== null) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
     animRef.current?.stop();
+    animRef.current = null;
     setIsRunning(false);
   }, []);
 
-  const reset = useCallback(() => {
-    stop();
-    setSecondsLeft(durationSeconds);
-    progress.setValue(1);
-  }, [stop, durationSeconds, progress]);
-
   const start = useCallback(() => {
-    // Reset state
-    setSecondsLeft(durationSeconds);
+    // Always clear any existing timer before starting fresh
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    animRef.current?.stop();
+    animRef.current = null;
+
+    const duration = durationRef.current;
+
+    // Reset display
+    setSecondsLeft(duration);
     progress.setValue(1);
     setIsRunning(true);
 
-    // Smooth animated progress ring
+    // Smooth ring animation
     const anim = Animated.timing(progress, {
       toValue: 0,
-      duration: durationSeconds * 1000,
+      duration: duration * 1000,
       useNativeDriver: false,
     });
     animRef.current = anim;
     anim.start();
 
-    // Discrete second counter for the displayed number
-    let remaining = durationSeconds;
-    intervalRef.current = setInterval(() => {
+    // Integer second countdown
+    let remaining = duration;
+    const id = setInterval(() => {
       remaining -= 1;
       setSecondsLeft(remaining);
       if (remaining <= 0) {
-        clearInterval(intervalRef.current!);
+        clearInterval(id);
         intervalRef.current = null;
         setIsRunning(false);
         onExpireRef.current();
       }
     }, 1000);
-  }, [durationSeconds, progress]);
+    intervalRef.current = id;
+  }, [progress]); // progress is stable (useRef.current)
 
-  // Auto-start on mount if requested
-  useEffect(() => {
-    if (autoStart) start();
-    return () => stop();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Clean up on unmount
+  useEffect(() => () => {
+    if (intervalRef.current !== null) clearInterval(intervalRef.current);
+    animRef.current?.stop();
   }, []);
 
-  return { secondsLeft, progress, isRunning, start, stop, reset };
+  return { secondsLeft, progress, isRunning, start, stop };
 }

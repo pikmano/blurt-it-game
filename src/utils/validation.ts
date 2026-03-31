@@ -8,6 +8,8 @@ import countriesEn from '../data/countries_en.json';
 import countriesHe from '../data/countries_he.json';
 import citiesEn from '../data/cities_en.json';
 import citiesHe from '../data/cities_he.json';
+import plantsEn from '../data/plants_en.json';
+import plantsHe from '../data/plants_he.json';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,11 +41,13 @@ const wordSets: Record<Language, Record<Category, WordSet>> = {
     animals: buildWordSet(animalsEn),
     countries: buildWordSet(countriesEn),
     cities: buildWordSet(citiesEn),
+    plants: buildWordSet(plantsEn),
   },
   he: {
     animals: buildWordSet(animalsHe),
     countries: buildWordSet(countriesHe),
     cities: buildWordSet(citiesHe),
+    plants: buildWordSet(plantsHe),
   },
 };
 
@@ -52,11 +56,13 @@ const byLetterMaps: Record<Language, Record<Category, ByLetterMap>> = {
     animals: buildByLetter(animalsEn),
     countries: buildByLetter(countriesEn),
     cities: buildByLetter(citiesEn),
+    plants: buildByLetter(plantsEn),
   },
   he: {
     animals: buildByLetter(animalsHe),
     countries: buildByLetter(countriesHe),
     cities: buildByLetter(citiesHe),
+    plants: buildByLetter(plantsHe),
   },
 };
 

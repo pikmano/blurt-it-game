@@ -39,7 +39,7 @@ function buildInitialStats(config: GameConfig): Record<string, PlayerStats> {
       fouls: 0,
       totalResponseTime: 0,
       answerCount: 0,
-      categoryCorrect: { animals: 0, countries: 0, cities: 0 },
+      categoryCorrect: { animals: 0, countries: 0, cities: 0, plants: 0 },
       letterHistory: [],
     };
   }
@@ -157,6 +157,9 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         ...state,
         turns: [...state.turns, turn],
         playerStats: updatedStats,
+        // Foul → force a new letter/category for the next turn
+        currentCategory: null,
+        currentLetter: null,
       };
     }
 
@@ -178,8 +181,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         ...state,
         currentPlayerIndex: nextPlayerIndex,
         currentCycle: nextCycle,
-        currentCategory: null,
-        currentLetter: null,
+        // Keep currentCategory/currentLetter — only FOUL resets them
       };
     }
 

@@ -32,7 +32,7 @@ export function getWinner(
  * Returns the category where a player had the most correct answers.
  */
 export function getBestCategory(stats: PlayerStats): Category | null {
-  const categories: Category[] = ['animals', 'countries', 'cities'];
+  const categories: Category[] = ['animals', 'countries', 'cities', 'plants'];
   let best: Category | null = null;
   let bestCount = 0;
 

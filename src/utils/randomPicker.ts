@@ -12,7 +12,7 @@ export function randomFrom<T>(arr: T[]): T {
  * Returns a random game category.
  */
 export function randomCategory(): Category {
-  const categories: Category[] = ['animals', 'countries', 'cities'];
+  const categories: Category[] = ['animals', 'countries', 'cities', 'plants'];
   return randomFrom(categories);
 }
 

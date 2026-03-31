@@ -41,6 +41,7 @@ const he: Strings = {
       animals: 'בעלי חיים',
       countries: 'מדינות',
       cities: 'ערים',
+      plants: 'צמחים',
     } as Record<Category, string>,
     listening: '...מאזין',
     typeAnswer: 'הקלד תשובה',

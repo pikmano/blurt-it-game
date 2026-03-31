@@ -1,7 +1,7 @@
 // ─── Language & Category ────────────────────────────────────────────────────
 
 export type Language = 'en' | 'he';
-export type Category = 'animals' | 'countries' | 'cities';
+export type Category = 'animals' | 'countries' | 'cities' | 'plants';
 
 // ─── Player & Config ────────────────────────────────────────────────────────
 

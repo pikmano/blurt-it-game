@@ -1,17 +1,6 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import * as Speech from 'expo-speech';
 import { Language } from '../types';
-
-// Speech recognition is optional — gracefully degrade if unavailable
-let ExpoSpeechRecognition: any = null;
-let useSpeechRecognitionEvent: any = null;
-try {
-  const mod = require('expo-speech-recognition');
-  ExpoSpeechRecognition = mod.ExpoSpeechRecognitionModule;
-  useSpeechRecognitionEvent = mod.useSpeechRecognitionEvent;
-} catch {
-  // expo-speech-recognition not available — text-only mode
-}
 
 // ─── TTS ─────────────────────────────────────────────────────────────────────
 
@@ -33,6 +22,9 @@ export function stopSpeaking(): void {
 }
 
 // ─── Speech Recognition Hook ──────────────────────────────────────────────────
+// Voice input via expo-speech-recognition requires a custom dev build and
+// is not available in Expo Go. This hook always reports isAvailable=false,
+// causing AnswerInput to render the text-only fallback.
 
 interface UseSpeechRecognitionOptions {
   language: Language;
@@ -48,85 +40,25 @@ interface UseSpeechRecognitionReturn {
   stopListening: () => void;
 }
 
-/**
- * Wraps expo-speech-recognition with a clean API and graceful fallback.
- */
 export function useSpeechRecognition({
   language,
   onResult,
   onError,
 }: UseSpeechRecognitionOptions): UseSpeechRecognitionReturn {
-  const [isListening, setIsListening] = useState(false);
-  const [transcript, setTranscript] = useState('');
-  const [isAvailable, setIsAvailable] = useState(false);
-  const onResultRef = useRef(onResult);
-  const onErrorRef = useRef(onError);
-
-  useEffect(() => {
-    onResultRef.current = onResult;
-    onErrorRef.current = onError;
-  }, [onResult, onError]);
-
-  // Check availability on mount
-  useEffect(() => {
-    if (!ExpoSpeechRecognition) return;
-    ExpoSpeechRecognition.isAvailableAsync?.()
-      .then((available: boolean) => setIsAvailable(available))
-      .catch(() => setIsAvailable(false));
-  }, []);
-
-  // Wire up recognition events if the module is loaded
-  // We call the hook unconditionally (rules of hooks), but guard the callback
-  const safeUseSpeechRecognitionEvent = useSpeechRecognitionEvent ?? (() => {});
-
-  safeUseSpeechRecognitionEvent('result', (event: any) => {
-    if (!event?.results?.[0]) return;
-    const text: string = event.results[0].transcript ?? '';
-    setTranscript(text);
-    if (!event.isFinal) return;
-    setIsListening(false);
-    onResultRef.current(text);
-  });
-
-  safeUseSpeechRecognitionEvent('error', (event: any) => {
-    setIsListening(false);
-    onErrorRef.current?.(event?.error ?? 'unknown error');
-  });
-
-  safeUseSpeechRecognitionEvent('end', () => {
-    setIsListening(false);
-  });
-
-  const locale = language === 'he' ? 'he-IL' : 'en-US';
+  const [isListening] = useState(false);
+  const [transcript] = useState('');
 
   const startListening = useCallback(async () => {
-    if (!ExpoSpeechRecognition || !isAvailable) return;
-    try {
-      const { status } = await ExpoSpeechRecognition.requestPermissionsAsync();
-      if (status !== 'granted') {
-        onErrorRef.current?.('Microphone permission denied');
-        return;
-      }
-      setTranscript('');
-      setIsListening(true);
-      ExpoSpeechRecognition.start({
-        lang: locale,
-        interimResults: true,
-        maxAlternatives: 1,
-      });
-    } catch (e: any) {
-      setIsListening(false);
-      onErrorRef.current?.(e?.message ?? 'Failed to start recognition');
-    }
-  }, [isAvailable, locale]);
+    // Not available in Expo Go — use text input instead
+  }, []);
 
-  const stopListening = useCallback(() => {
-    if (!ExpoSpeechRecognition || !isListening) return;
-    try {
-      ExpoSpeechRecognition.stop();
-    } catch {}
-    setIsListening(false);
-  }, [isListening]);
+  const stopListening = useCallback(() => {}, []);
 
-  return { isListening, isAvailable, transcript, startListening, stopListening };
+  return {
+    isListening,
+    isAvailable: false, // text-only mode in Expo Go
+    transcript,
+    startListening,
+    stopListening,
+  };
 }
