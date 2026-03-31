@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "AlphaBurst",
+    "slug": "alphaburst",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#6C63FF"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.alphaburst.game",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "AlphaBurst needs your microphone to hear your answers.",
+        "NSSpeechRecognitionUsageDescription": "AlphaBurst uses speech recognition to understand your words."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#6C63FF"
+      },
+      "package": "com.alphaburst.game",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "AlphaBurst needs your microphone to hear your answers.",
+          "speechRecognitionPermission": "AlphaBurst uses speech recognition to understand your words."
+        }
+      ],
+      "expo-speech"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "your-project-id-here"
+      }
+    }
+  }
+}
