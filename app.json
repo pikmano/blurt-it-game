@@ -44,10 +44,6 @@
         }
       ]
     ],
-    "extra": {
-      "eas": {
-        "projectId": "your-project-id-here"
-      }
-    }
+    "extra": {}
   }
 }
