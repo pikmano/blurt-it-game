@@ -68,9 +68,11 @@ export function GameScreen({ navigation }: Props) {
   // Track what category+letter was last announced (to avoid repeating TTS)
   const lastAnnouncedRef  = useRef<string>('');
 
-  const pendingTurnRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const gameStartedRef    = useRef(false);
-  const turnInProgressRef = useRef(false);
+  const pendingTurnRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gameStartedRef     = useRef(false);
+  const turnInProgressRef  = useRef(false);
+  // Prevents double-submission (voice + timer firing simultaneously, or voice firing twice)
+  const turnSubmittedRef   = useRef(false);
 
   const updatePhase = (p: Phase) => {
     phaseRef.current = p;
@@ -110,6 +112,8 @@ export function GameScreen({ navigation }: Props) {
   // ─── Timer ────────────────────────────────────────────────────────────────
   const handleTimeUp = useCallback(() => {
     if (phaseRef.current !== 'playing') return;
+    if (turnSubmittedRef.current) return;
+    turnSubmittedRef.current = true;
     speech.stopListening();
     const elapsed = Date.now() - turnStartTimeRef.current;
     dispatch({ type: 'FOUL', payload: { reason: 'time_up', responseTime: elapsed } });
@@ -162,11 +166,12 @@ export function GameScreen({ navigation }: Props) {
       dispatch({ type: 'BEGIN_TURN', payload: { category, letter } });
     }
 
+    turnSubmittedRef.current = false; // reset guard for the new turn
     updatePhase('announcing');
     setFeedback(null);
     setCorrectWord('');
     timer.stop();
-    stopSpeaking(); // ensure previous TTS is fully stopped before new announcement
+    stopSpeaking();
     animateLetter();
 
     // TTS: full announcement only when category+letter changed
@@ -265,38 +270,38 @@ export function GameScreen({ navigation }: Props) {
   // Splits transcript into individual words — if ANY word is correct, take it.
   const handleVoiceResult = useCallback((transcript: string) => {
     if (phaseRef.current !== 'playing') return;
+    if (turnSubmittedRef.current) return; // guard against double-submission
 
-    // Check each word in the transcript individually
     const words = transcript.trim().split(/\s+/).filter(Boolean);
     for (const word of words) {
       const result = validateRef.current(word);
       if (result.valid) {
+        turnSubmittedRef.current = true;
         timer.stop();
         speech.stopListening();
         const elapsed = Date.now() - turnStartTimeRef.current;
         dispatch({ type: 'CORRECT_ANSWER', payload: { answer: word, responseTime: elapsed } });
         showFeedbackAndAdvance('correct', t.game.correct, true, word);
-        return; // stop as soon as we find the correct word
+        return;
       }
     }
-    // No correct word in this transcript — silently ignore, keep listening
   }, [timer, speech, dispatch, showFeedbackAndAdvance, t]);
 
   // ─── Typed answer handler ─────────────────────────────────────────────────
-  // Wrong typed answers shake the input. Only correct = advance.
   const handleAnswer = useCallback((answer: string) => {
     if (phaseRef.current !== 'playing') return;
+    if (turnSubmittedRef.current) return; // guard against double-submission
 
     const result = validateRef.current(answer);
 
     if (result.valid) {
+      turnSubmittedRef.current = true;
       timer.stop();
       speech.stopListening();
       const elapsed = Date.now() - turnStartTimeRef.current;
       dispatch({ type: 'CORRECT_ANSWER', payload: { answer, responseTime: elapsed } });
       showFeedbackAndAdvance('correct', t.game.correct, true, answer);
     } else {
-      // Wrong typed answer — shake input, keep going
       shakeAnswerInput();
     }
   }, [timer, speech, dispatch, showFeedbackAndAdvance, t]);
