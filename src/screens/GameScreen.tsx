@@ -7,14 +7,13 @@ import {
   Vibration,
   Platform,
 } from 'react-native';
-import { WebView } from 'react-native-webview';
 import * as Haptics from 'expo-haptics';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, Category } from '../types';
 import { useAppSettings } from '../context/AppSettingsContext';
 import { useGame } from '../context/GameContext';
 import { useTimer } from '../hooks/useTimer';
-import { useSpeechRecognition, speakText, stopSpeaking, buildSpeechHtml } from '../hooks/useSpeech';
+import { useSpeechRecognition, speakText, stopSpeaking } from '../hooks/useSpeech';
 import { useValidation } from '../hooks/useValidation';
 import { randomTurn } from '../utils/randomPicker';
 import { CircularTimer } from '../components/CircularTimer';
@@ -350,18 +349,6 @@ export function GameScreen({ navigation }: Props) {
       </View>
 
       <FeedbackOverlay feedback={feedback} label={feedbackLabel} />
-
-      {/* Invisible WebView powering speech recognition */}
-      <WebView
-        ref={speech.webViewRef}
-        style={styles.hiddenWebView}
-        originWhitelist={['*']}
-        source={{ html: buildSpeechHtml(speech.locale) }}
-        onMessage={speech.onWebViewMessage}
-        mediaPlaybackRequiresUserAction={false}
-        allowsInlineMediaPlayback
-        javaScriptEnabled
-      />
     </SafeAreaView>
   );
 }
@@ -403,5 +390,4 @@ const styles = StyleSheet.create({
   announcingPill: { backgroundColor: '#EEF2FF', borderRadius: 16, paddingHorizontal: 20, paddingVertical: 12 },
   announcingText: { color: '#6C63FF', fontWeight: '700', fontSize: 16, textAlign: 'center' },
   inputSection: { width: '100%' },
-  hiddenWebView: { width: 0, height: 0, position: 'absolute' },
 });
