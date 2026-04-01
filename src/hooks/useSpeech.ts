@@ -1,10 +1,19 @@
-import { useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import * as Speech from 'expo-speech';
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from 'expo-speech-recognition';
 import { Language } from '../types';
 
 // ─── TTS ─────────────────────────────────────────────────────────────────────
 
 const TTS_LOCALE: Record<Language, string> = {
+  en: 'en-US',
+  he: 'he-IL',
+};
+
+const STT_LOCALE: Record<Language, string> = {
   en: 'en-US',
   he: 'he-IL',
 };
@@ -16,18 +25,9 @@ export function speakText(text: string, language: Language, mood: SpeakMood = 'n
     language: TTS_LOCALE[language],
     onError: () => {},
   };
-
-  if (mood === 'excited') {
-    options.pitch = 1.5;
-    options.rate = 1.3;
-  } else if (mood === 'sad') {
-    options.pitch = 0.6;
-    options.rate = 0.7;
-  } else {
-    options.pitch = 1.0;
-    options.rate = 0.9;
-  }
-
+  if (mood === 'excited') { options.pitch = 1.5; options.rate = 1.3; }
+  else if (mood === 'sad') { options.pitch = 0.6; options.rate = 0.7; }
+  else { options.pitch = 1.0; options.rate = 0.9; }
   Speech.speak(text, options);
 }
 
@@ -36,8 +36,8 @@ export function stopSpeaking(): void {
 }
 
 // ─── Speech Recognition Hook ──────────────────────────────────────────────────
-// Voice input via webkitSpeechRecognition requires HTTPS and a native build.
-// In Expo Go, this always returns isAvailable: false → text-only input.
+// Uses iOS SFSpeechRecognizer / Android SpeechRecognizer — free, on-device.
+// Requires a compiled app (EAS dev build). Falls back to text-only in Expo Go.
 
 interface UseSpeechRecognitionOptions {
   language: Language;
@@ -53,15 +53,70 @@ interface UseSpeechRecognitionReturn {
   stopListening: () => void;
 }
 
-export function useSpeechRecognition(_opts: UseSpeechRecognitionOptions): UseSpeechRecognitionReturn {
-  const startListening = useCallback(async () => {}, []);
-  const stopListening = useCallback(() => {}, []);
+export function useSpeechRecognition({
+  language,
+  onResult,
+  onError,
+}: UseSpeechRecognitionOptions): UseSpeechRecognitionReturn {
+  const [isListening, setIsListening] = useState(false);
+  const [isAvailable, setIsAvailable] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const onResultRef = useRef(onResult);
+  const onErrorRef = useRef(onError);
+  onResultRef.current = onResult;
+  onErrorRef.current = onError;
 
-  return {
-    isListening: false,
-    isAvailable: false,
-    transcript: '',
-    startListening,
-    stopListening,
-  };
+  // Check if native STT is available (true in compiled build, false in Expo Go)
+  useEffect(() => {
+    ExpoSpeechRecognitionModule.isRecognitionAvailable()
+      .then(setIsAvailable)
+      .catch(() => setIsAvailable(false));
+
+    return () => {
+      try { ExpoSpeechRecognitionModule.abort(); } catch {}
+    };
+  }, []);
+
+  useSpeechRecognitionEvent('result', (event: any) => {
+    const text: string = event.results?.[0]?.transcript ?? '';
+    if (!text) return;
+    setTranscript(text);
+    if (event.isFinal) {
+      setIsListening(false);
+      onResultRef.current(text);
+    }
+  });
+
+  useSpeechRecognitionEvent('error', (event: any) => {
+    setIsListening(false);
+    onErrorRef.current?.(event.error ?? 'unknown');
+  });
+
+  useSpeechRecognitionEvent('end', () => {
+    setIsListening(false);
+  });
+
+  const startListening = useCallback(async () => {
+    if (!isAvailable) return;
+    try {
+      const { granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!granted) return;
+      setTranscript('');
+      setIsListening(true);
+      ExpoSpeechRecognitionModule.start({
+        lang: STT_LOCALE[language],
+        interimResults: true,
+        continuous: false,
+      });
+    } catch {
+      setIsListening(false);
+    }
+  }, [isAvailable, language]);
+
+  const stopListening = useCallback(() => {
+    try { ExpoSpeechRecognitionModule.stop(); } catch {}
+    setIsListening(false);
+  }, []);
+
+  return { isListening, isAvailable, transcript, startListening, stopListening };
 }
