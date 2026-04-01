@@ -29,11 +29,11 @@ export function speakText(
   const options: Speech.SpeechOptions = {
     language: TTS_LOCALE[language],
     onError: () => { onDone?.(); },
-    onDone: onDone,
+    onDone,
   };
   if (mood === 'excited') { options.pitch = 1.5; options.rate = 1.3; }
-  else if (mood === 'sad') { options.pitch = 0.6; options.rate = 0.7; }
-  else { options.pitch = 1.0; options.rate = 0.9; }
+  else if (mood === 'sad')    { options.pitch = 0.6; options.rate = 0.7; }
+  else                        { options.pitch = 1.0; options.rate = 0.9; }
   Speech.speak(text, options);
 }
 
@@ -42,9 +42,6 @@ export function stopSpeaking(): void {
 }
 
 // ─── Speech Recognition Hook ──────────────────────────────────────────────────
-// Continuous mode: auto-restarts after silence so recognition never drops
-// during a turn. Call startContinuous() when turn begins, stopContinuous()
-// when it ends.
 
 interface UseSpeechRecognitionOptions {
   language: Language;
@@ -56,8 +53,9 @@ interface UseSpeechRecognitionReturn {
   isListening: boolean;
   isAvailable: boolean;
   transcript: string;
-  startListening: () => Promise<void>;   // alias for startContinuous
-  stopListening: () => void;              // alias for stopContinuous
+  startListening: () => void;
+  stopListening: () => void;
+  preparePermissions: () => Promise<void>; // call once at game start
 }
 
 export function useSpeechRecognition({
@@ -69,8 +67,8 @@ export function useSpeechRecognition({
   const [isAvailable, setIsAvailable] = useState(false);
   const [transcript, setTranscript] = useState('');
 
-  const activeRef      = useRef(false);   // whether we WANT to be listening
-  const isAvailableRef = useRef(false);   // sync ref so startListening never reads stale state
+  const activeRef      = useRef(false);
+  const permGranted    = useRef(false);
   const langRef        = useRef(language);
   const onResultRef    = useRef(onResult);
   const onErrorRef     = useRef(onError);
@@ -78,24 +76,19 @@ export function useSpeechRecognition({
   onResultRef.current = onResult;
   onErrorRef.current  = onError;
 
-  // Check availability once — update both state and ref
+  // Check availability on mount
   useEffect(() => {
     try {
       const result = ExpoSpeechRecognitionModule.isRecognitionAvailable();
+      const setValue = (v: boolean) => setIsAvailable(v);
       if (result && typeof (result as any).then === 'function') {
-        (result as unknown as Promise<boolean>).then(v => {
-          isAvailableRef.current = v;
-          setIsAvailable(v);
-        }).catch(() => setIsAvailable(false));
+        (result as unknown as Promise<boolean>).then(setValue).catch(() => setValue(false));
       } else {
-        isAvailableRef.current = Boolean(result);
-        setIsAvailable(Boolean(result));
+        setValue(Boolean(result));
       }
-    } catch { setIsAvailable(false); }
+    } catch { /* not available */ }
 
-    return () => {
-      try { ExpoSpeechRecognitionModule.abort(); } catch {}
-    };
+    return () => { try { ExpoSpeechRecognitionModule.abort(); } catch {} };
   }, []);
 
   const doStart = useCallback(() => {
@@ -103,7 +96,7 @@ export function useSpeechRecognition({
       ExpoSpeechRecognitionModule.start({
         lang: STT_LOCALE[langRef.current],
         interimResults: true,
-        continuous: false, // we handle continuity ourselves via auto-restart
+        continuous: false,
       });
     } catch {}
   }, []);
@@ -114,20 +107,16 @@ export function useSpeechRecognition({
     const text: string = event.results?.[0]?.transcript ?? '';
     if (!text) return;
     setTranscript(text);
-    // Fire on every result — caller decides what to do with interim vs final
     onResultRef.current(text, event.isFinal ?? true);
   });
 
-  useSpeechRecognitionEvent('error', (event: any) => {
-    onErrorRef.current?.(event.error ?? 'unknown');
-    // auto-restart unless we deliberately stopped
+  useSpeechRecognitionEvent('error', (_event: any) => {
     if (activeRef.current) {
       setTimeout(() => { if (activeRef.current) doStart(); }, 300);
     }
   });
 
   useSpeechRecognitionEvent('end', () => {
-    // auto-restart to keep continuous listening
     if (activeRef.current) {
       setTimeout(() => { if (activeRef.current) doStart(); }, 200);
     } else {
@@ -137,17 +126,32 @@ export function useSpeechRecognition({
 
   // ─── Public API ────────────────────────────────────────────────────────────
 
-  const startListening = useCallback(async () => {
-    // Use ref — never miss first-run because state hasn't updated yet
-    if (!isAvailableRef.current) return;
+  /** Request permissions upfront so they're ready when the first turn starts */
+  const preparePermissions = useCallback(async () => {
     try {
       const { granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      if (!granted) return;
-      setTranscript('');
-      setIsListening(true);
-      activeRef.current = true;
+      permGranted.current = granted;
+    } catch {}
+  }, []);
+
+  /** Start continuous listening — skips permission dialog if already granted */
+  const startListening = useCallback(() => {
+    if (activeRef.current) return; // already listening
+    setTranscript('');
+    setIsListening(true);
+    activeRef.current = true;
+    if (permGranted.current) {
+      // Permissions already granted — start immediately, no async needed
       doStart();
-    } catch { setIsListening(false); }
+    } else {
+      // First time — request and then start
+      ExpoSpeechRecognitionModule.requestPermissionsAsync()
+        .then(({ granted }: { granted: boolean }) => {
+          permGranted.current = granted;
+          if (granted && activeRef.current) doStart();
+        })
+        .catch(() => {});
+    }
   }, [doStart]);
 
   const stopListening = useCallback(() => {
@@ -157,5 +161,5 @@ export function useSpeechRecognition({
     try { ExpoSpeechRecognitionModule.stop(); } catch {}
   }, []);
 
-  return { isListening, isAvailable, transcript, startListening, stopListening };
+  return { isListening, isAvailable, transcript, startListening, stopListening, preparePermissions };
 }

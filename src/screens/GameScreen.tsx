@@ -124,6 +124,8 @@ export function GameScreen({ navigation }: Props) {
   // ─── Guard + finish ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!state.config || state.status === 'idle') navigation.replace('Home');
+    // Request mic permission immediately so it's ready before the first turn
+    speech.preparePermissions();
   }, []);
 
   useEffect(() => {
@@ -260,18 +262,24 @@ export function GameScreen({ navigation }: Props) {
   }, [settings, t, timer, speech, dispatch, startTurn]);
 
   // ─── Voice result handler ─────────────────────────────────────────────────
-  // Validates each spoken word immediately. Correct = submit. Wrong = ignored silently.
+  // Splits transcript into individual words — if ANY word is correct, take it.
   const handleVoiceResult = useCallback((transcript: string) => {
     if (phaseRef.current !== 'playing') return;
-    const result = validateRef.current(transcript);
-    if (result.valid) {
-      timer.stop();
-      speech.stopListening();
-      const elapsed = Date.now() - turnStartTimeRef.current;
-      dispatch({ type: 'CORRECT_ANSWER', payload: { answer: transcript, responseTime: elapsed } });
-      showFeedbackAndAdvance('correct', t.game.correct, true, transcript);
+
+    // Check each word in the transcript individually
+    const words = transcript.trim().split(/\s+/).filter(Boolean);
+    for (const word of words) {
+      const result = validateRef.current(word);
+      if (result.valid) {
+        timer.stop();
+        speech.stopListening();
+        const elapsed = Date.now() - turnStartTimeRef.current;
+        dispatch({ type: 'CORRECT_ANSWER', payload: { answer: word, responseTime: elapsed } });
+        showFeedbackAndAdvance('correct', t.game.correct, true, word);
+        return; // stop as soon as we find the correct word
+      }
     }
-    // Wrong voice result → silently ignore, keep listening
+    // No correct word in this transcript — silently ignore, keep listening
   }, [timer, speech, dispatch, showFeedbackAndAdvance, t]);
 
   // ─── Typed answer handler ─────────────────────────────────────────────────
