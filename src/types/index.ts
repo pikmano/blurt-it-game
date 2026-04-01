@@ -28,6 +28,8 @@ export interface PlayerStats {
   answerCount: number; // turns where player responded (for avg calc)
   categoryCorrect: Record<Category, number>;
   letterHistory: string[]; // letters faced per turn
+  currentStreak: number; // consecutive correct answers
+  maxStreak: number; // best streak this game
 }
 
 // ─── Turns ──────────────────────────────────────────────────────────────────

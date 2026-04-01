@@ -44,6 +44,11 @@
         }
       ]
     ],
-    "extra": {}
+    "extra": {
+      "eas": {
+        "projectId": "59175608-e3af-4565-b90d-ec27414915b9"
+      }
+    },
+    "owner": "pikmano"
   }
 }

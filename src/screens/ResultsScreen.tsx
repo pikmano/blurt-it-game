@@ -6,6 +6,8 @@ import {
   ScrollView,
   StyleSheet,
   SafeAreaView,
+  Animated,
+  Dimensions,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, PlayerStats, Category } from '../types';
@@ -20,10 +22,14 @@ type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Results'>;
 };
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
 const AVATAR_COLORS = [
   '#6C63FF', '#FF6584', '#43BCCD', '#F7B731', '#26de81',
   '#FC5C65', '#45AAF2', '#A55EEA', '#FD9644', '#2BCBBA',
 ];
+
+const RANK_MEDALS = ['🥇', '🥈', '🥉'];
 
 export function ResultsScreen({ navigation }: Props) {
   const { strings, isRTL } = useAppSettings();
@@ -31,6 +37,31 @@ export function ResultsScreen({ navigation }: Props) {
   const t = strings;
   const [saved, setSaved] = useState(false);
   const [confettiKey, setConfettiKey] = useState(0);
+
+  // Entrance animations
+  const titleAnim  = useRef(new Animated.Value(-60)).current;
+  const titleOp    = useRef(new Animated.Value(0)).current;
+  const cardAnim   = useRef(new Animated.Value(80)).current;
+  const cardOp     = useRef(new Animated.Value(0)).current;
+  const tableAnim  = useRef(new Animated.Value(60)).current;
+  const tableOp    = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.stagger(120, [
+      Animated.parallel([
+        Animated.spring(titleAnim, { toValue: 0, useNativeDriver: true, tension: 120, friction: 8 }),
+        Animated.timing(titleOp, { toValue: 1, duration: 300, useNativeDriver: true }),
+      ]),
+      Animated.parallel([
+        Animated.spring(cardAnim, { toValue: 0, useNativeDriver: true, tension: 100, friction: 8 }),
+        Animated.timing(cardOp, { toValue: 1, duration: 400, useNativeDriver: true }),
+      ]),
+      Animated.parallel([
+        Animated.spring(tableAnim, { toValue: 0, useNativeDriver: true, tension: 100, friction: 8 }),
+        Animated.timing(tableOp, { toValue: 1, duration: 400, useNativeDriver: true }),
+      ]),
+    ]).start();
+  }, []);
 
   if (!state.config) {
     navigation.replace('Home');
@@ -40,13 +71,11 @@ export function ResultsScreen({ navigation }: Props) {
   const winnerId = getWinner(state.playerStats);
   const winnerStats = winnerId ? state.playerStats[winnerId] : null;
 
-  // Sort players: winner first, then by fouls asc, then correct desc
   const sortedPlayers = Object.values(state.playerStats).sort((a, b) => {
     if (a.fouls !== b.fouls) return a.fouls - b.fouls;
     return b.correct - a.correct;
   });
 
-  // Save to history once
   useEffect(() => {
     if (!saved && state.config) {
       setSaved(true);
@@ -77,129 +106,144 @@ export function ResultsScreen({ navigation }: Props) {
     <SafeAreaView style={styles.safe}>
       <ConfettiAnimation key={confettiKey} />
 
-      <ScrollView contentContainerStyle={styles.container}>
-        {/* Title */}
-        <Text style={[styles.title, isRTL && styles.rtlText]}>{t.results.title}</Text>
+      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
 
-        {/* Winner announcement */}
-        <View style={styles.winnerCard}>
+        {/* Title */}
+        <Animated.Text
+          style={[styles.title, isRTL && styles.rtlText,
+            { transform: [{ translateY: titleAnim }], opacity: titleOp }]}
+        >
+          {t.results.title}
+        </Animated.Text>
+
+        {/* Winner card */}
+        <Animated.View
+          style={[styles.winnerCard, { transform: [{ translateY: cardAnim }], opacity: cardOp }]}
+        >
           {winnerStats ? (
             <>
               <Text style={styles.trophy}>🏆</Text>
               <Text style={styles.winnerName}>{winnerStats.name}</Text>
-              <Text style={styles.winnerLabel}>{t.results.winner(winnerStats.name)}</Text>
-              <View style={styles.winnerStatsRow}>
-                <WinnerStat label="✅" value={winnerStats.correct} />
-                <WinnerStat label="❌" value={winnerStats.fouls} />
+              <Text style={styles.winnerSubtitle}>{t.results.winner(winnerStats.name)}</Text>
+              <View style={styles.winnerChips}>
+                <WinnerChip icon="✅" value={winnerStats.correct} label={t.results.stats.correct} color="#16A34A" />
+                <WinnerChip icon="❌" value={winnerStats.fouls} label={t.results.stats.fouls} color="#DC2626" />
+                {winnerStats.maxStreak >= 2 && (
+                  <WinnerChip icon="🔥" value={winnerStats.maxStreak} label="Best Streak" color="#D97706" />
+                )}
               </View>
             </>
           ) : (
             <>
               <Text style={styles.trophy}>🤝</Text>
-              <Text style={styles.winnerLabel}>{t.results.tie}</Text>
+              <Text style={styles.winnerSubtitle}>{t.results.tie}</Text>
             </>
           )}
-        </View>
+        </Animated.View>
 
-        {/* Per-player stats table */}
-        <Text style={[styles.tableTitle, isRTL && styles.rtlText]}>
-          {t.results.stats.player}s
-        </Text>
-        {sortedPlayers.map((ps, i) => (
-          <PlayerRow
-            key={ps.id}
-            stats={ps}
-            rank={i + 1}
-            isWinner={ps.id === winnerId}
-            turns={state.turns}
-            t={t}
-            catLabel={(cat: Category) => t.game.categories[cat]}
-            isRTL={isRTL}
-            avatarColor={AVATAR_COLORS[
-              state.config!.players.findIndex(p => p.id === ps.id) % AVATAR_COLORS.length
-            ]}
-          />
-        ))}
+        {/* Podium (top 3) */}
+        {sortedPlayers.length > 1 && (
+          <Animated.View style={[styles.podiumRow, { opacity: tableOp }]}>
+            {sortedPlayers.slice(0, Math.min(3, sortedPlayers.length)).map((ps, i) => {
+              const color = AVATAR_COLORS[
+                state.config!.players.findIndex(p => p.id === ps.id) % AVATAR_COLORS.length
+              ];
+              const heights = [90, 70, 55];
+              return (
+                <View key={ps.id} style={styles.podiumItem}>
+                  <Text style={styles.podiumMedal}>{RANK_MEDALS[i] ?? `#${i + 1}`}</Text>
+                  <View style={[styles.podiumAvatar, { backgroundColor: color }]}>
+                    <Text style={styles.podiumAvatarText}>{ps.name.slice(0, 2).toUpperCase()}</Text>
+                  </View>
+                  <Text style={styles.podiumName} numberOfLines={1}>{ps.name}</Text>
+                  <View style={[styles.podiumBar, { height: heights[i] ?? 40, backgroundColor: color + 'cc' }]}>
+                    <Text style={styles.podiumScore}>{ps.correct - ps.fouls}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </Animated.View>
+        )}
+
+        {/* Player stats */}
+        <Animated.View style={{ width: '100%', gap: 12, opacity: tableOp, transform: [{ translateY: tableAnim }] }}>
+          {sortedPlayers.map((ps, i) => (
+            <PlayerRow
+              key={ps.id}
+              stats={ps}
+              rank={i + 1}
+              isWinner={ps.id === winnerId}
+              turns={state.turns}
+              t={t}
+              catLabel={(cat: Category) => t.game.categories[cat]}
+              isRTL={isRTL}
+              avatarColor={AVATAR_COLORS[
+                state.config!.players.findIndex(p => p.id === ps.id) % AVATAR_COLORS.length
+              ]}
+            />
+          ))}
+        </Animated.View>
 
         <Text style={styles.winningRule}>{t.results.winningRule}</Text>
 
         {/* Action buttons */}
         <View style={styles.actions}>
-          <TouchableOpacity style={styles.primaryBtn} onPress={handlePlayAgain}>
-            <Text style={styles.primaryBtnText}>🔄 {t.results.playAgain}</Text>
+          <TouchableOpacity style={styles.primaryBtn} onPress={handlePlayAgain} activeOpacity={0.85}>
+            <Text style={styles.primaryBtnText}>🔄  {t.results.playAgain}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={handleNewGame}>
-            <Text style={styles.secondaryBtnText}>🏠 {t.results.newGame}</Text>
+          <TouchableOpacity style={styles.secondaryBtn} onPress={handleNewGame} activeOpacity={0.85}>
+            <Text style={styles.secondaryBtnText}>🏠  {t.results.newGame}</Text>
           </TouchableOpacity>
         </View>
+
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function WinnerStat({ label, value }: { label: string; value: number }) {
+function WinnerChip({ icon, value, label, color }: { icon: string; value: number; label: string; color: string }) {
   return (
-    <View style={styles.winnerStat}>
-      <Text style={styles.winnerStatLabel}>{label}</Text>
-      <Text style={styles.winnerStatValue}>{value}</Text>
+    <View style={[styles.winnerChip, { borderColor: color + '60', backgroundColor: color + '18' }]}>
+      <Text style={styles.winnerChipIcon}>{icon}</Text>
+      <Text style={[styles.winnerChipValue, { color }]}>{value}</Text>
+      <Text style={styles.winnerChipLabel}>{label}</Text>
     </View>
   );
 }
 
 function PlayerRow({
-  stats,
-  rank,
-  isWinner,
-  turns,
-  t,
-  catLabel,
-  isRTL,
-  avatarColor,
+  stats, rank, isWinner, turns, t, catLabel, isRTL, avatarColor,
 }: {
-  stats: PlayerStats;
-  rank: number;
-  isWinner: boolean;
-  turns: any[];
-  t: any;
-  catLabel: (cat: Category) => string;
-  isRTL: boolean;
-  avatarColor: string;
+  stats: PlayerStats; rank: number; isWinner: boolean; turns: any[];
+  t: any; catLabel: (cat: Category) => string; isRTL: boolean; avatarColor: string;
 }) {
   const avgMs = getAverageResponseTime(stats);
   const hardest = getHardestLetter(turns, stats.id);
   const bestCat = getBestCategory(stats);
 
   return (
-    <View style={[styles.playerRow, isWinner && styles.playerRowWinner]}>
-      {/* Rank + Avatar */}
-      <View style={styles.playerRowLeft}>
-        <Text style={styles.rank}>#{rank}</Text>
-        <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
-          <Text style={styles.avatarText}>{stats.name.slice(0, 2).toUpperCase()}</Text>
-          {isWinner && <Text style={styles.trophyBadge}>🏆</Text>}
+    <View style={[styles.playerRow, isWinner && { borderColor: '#FCD34D', backgroundColor: '#FFFBEB' }]}>
+      <View style={styles.playerRowHeader}>
+        <View style={styles.playerRowLeft}>
+          <Text style={styles.rankMedal}>{RANK_MEDALS[rank - 1] ?? `#${rank}`}</Text>
+          <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
+            <Text style={styles.avatarText}>{stats.name.slice(0, 2).toUpperCase()}</Text>
+          </View>
+          <Text style={styles.playerName} numberOfLines={1}>{stats.name}</Text>
         </View>
-        <Text style={styles.playerName} numberOfLines={1}>{stats.name}</Text>
+        <View style={styles.playerScoreRow}>
+          <Text style={styles.playerCorrect}>✅ {stats.correct}</Text>
+          <Text style={styles.playerFouls}>❌ {stats.fouls}</Text>
+        </View>
       </View>
 
-      {/* Stats grid */}
       <View style={styles.statsGrid}>
-        <StatCell label={t.results.stats.correct} value={String(stats.correct)} color="#16A34A" />
-        <StatCell label={t.results.stats.fouls} value={String(stats.fouls)} color="#DC2626" />
-        <StatCell
-          label={t.results.stats.avgTime}
-          value={avgMs > 0 ? `${(avgMs / 1000).toFixed(1)}s` : t.results.stats.none}
-          color="#6B7280"
-        />
-        <StatCell
-          label={t.results.stats.hardestLetter}
-          value={hardest?.toUpperCase() ?? t.results.stats.none}
-          color="#7C3AED"
-        />
-        <StatCell
-          label={t.results.stats.bestCategory}
-          value={bestCat ? catLabel(bestCat) : t.results.stats.none}
-          color="#0891B2"
-        />
+        <StatCell label={t.results.stats.avgTime} value={avgMs > 0 ? `${(avgMs / 1000).toFixed(1)}s` : '—'} color="#6B7280" />
+        <StatCell label={t.results.stats.hardestLetter} value={hardest?.toUpperCase() ?? '—'} color="#7C3AED" />
+        <StatCell label={t.results.stats.bestCategory} value={bestCat ? catLabel(bestCat) : '—'} color="#0891B2" />
+        {stats.maxStreak >= 2 && (
+          <StatCell label="Best Streak" value={`🔥 ${stats.maxStreak}`} color="#D97706" />
+        )}
       </View>
     </View>
   );
@@ -216,127 +260,71 @@ function StatCell({ label, value, color }: { label: string; value: string; color
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#F9FAFB' },
-  container: {
-    padding: 20,
-    gap: 20,
-    paddingBottom: 48,
-    alignItems: 'center',
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: '#111827',
-    textAlign: 'center',
-  },
+  container: { padding: 20, gap: 20, paddingBottom: 60, alignItems: 'center' },
+
+  title: { fontSize: 34, fontWeight: '900', color: '#111827', textAlign: 'center' },
   rtlText: { textAlign: 'right' },
 
-  // Winner card
   winnerCard: {
-    width: '100%',
-    backgroundColor: '#FFFBEB',
-    borderRadius: 24,
-    padding: 28,
-    alignItems: 'center',
-    gap: 8,
-    borderWidth: 2,
-    borderColor: '#FCD34D',
-    shadowColor: '#F7B731',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    width: '100%', backgroundColor: '#FFFBEB', borderRadius: 24, padding: 28,
+    alignItems: 'center', gap: 8, borderWidth: 2, borderColor: '#FCD34D',
+    shadowColor: '#F7B731', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 6,
   },
-  trophy: { fontSize: 56 },
-  winnerName: { fontSize: 28, fontWeight: '900', color: '#111827' },
-  winnerLabel: { fontSize: 18, fontWeight: '700', color: '#92400E' },
-  winnerStatsRow: { flexDirection: 'row', gap: 24, marginTop: 8 },
-  winnerStat: { alignItems: 'center', gap: 2 },
-  winnerStatLabel: { fontSize: 22 },
-  winnerStatValue: { fontSize: 22, fontWeight: '800', color: '#374151' },
+  trophy: { fontSize: 64 },
+  winnerName: { fontSize: 30, fontWeight: '900', color: '#111827' },
+  winnerSubtitle: { fontSize: 17, fontWeight: '700', color: '#92400E' },
+  winnerChips: { flexDirection: 'row', gap: 10, marginTop: 8, flexWrap: 'wrap', justifyContent: 'center' },
+  winnerChip: { alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 16, borderWidth: 1.5, gap: 2 },
+  winnerChipIcon: { fontSize: 20 },
+  winnerChipValue: { fontSize: 22, fontWeight: '900' },
+  winnerChipLabel: { fontSize: 11, color: '#6B7280', fontWeight: '600' },
 
-  // Player table
-  tableTitle: {
-    alignSelf: 'flex-start',
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#6B7280',
+  // Podium
+  podiumRow: {
+    width: '100%', flexDirection: 'row', alignItems: 'flex-end',
+    justifyContent: 'center', gap: 12, paddingHorizontal: 10,
   },
+  podiumItem: { alignItems: 'center', flex: 1, gap: 4 },
+  podiumMedal: { fontSize: 28 },
+  podiumAvatar: {
+    width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
+  },
+  podiumAvatarText: { color: '#fff', fontWeight: '900', fontSize: 16 },
+  podiumName: { fontSize: 12, fontWeight: '700', color: '#374151', textAlign: 'center' },
+  podiumBar: { width: '100%', borderTopLeftRadius: 8, borderTopRightRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  podiumScore: { color: '#fff', fontWeight: '900', fontSize: 18 },
+
+  // Player rows
   playerRow: {
-    width: '100%',
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
-    gap: 12,
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
+    width: '100%', backgroundColor: '#fff', borderRadius: 18, padding: 16,
+    gap: 12, borderWidth: 2, borderColor: '#E5E7EB',
   },
-  playerRowWinner: {
-    borderColor: '#FCD34D',
-    backgroundColor: '#FFFBEB',
-  },
-  playerRowLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  rank: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#9CA3AF',
-    width: 26,
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: { color: '#fff', fontWeight: '800', fontSize: 15 },
-  trophyBadge: {
-    position: 'absolute',
-    top: -8,
-    right: -8,
-    fontSize: 14,
-  },
+  playerRowHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  playerRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  rankMedal: { fontSize: 22, width: 30 },
+  avatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { color: '#fff', fontWeight: '800', fontSize: 14 },
   playerName: { fontSize: 16, fontWeight: '700', color: '#111827', flex: 1 },
+  playerScoreRow: { flexDirection: 'row', gap: 8 },
+  playerCorrect: { fontSize: 14, fontWeight: '800', color: '#16A34A', backgroundColor: '#DCFCE7', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, overflow: 'hidden' },
+  playerFouls: { fontSize: 14, fontWeight: '800', color: '#DC2626', backgroundColor: '#FEE2E2', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, overflow: 'hidden' },
 
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  statCell: {
-    alignItems: 'center',
-    minWidth: 60,
-    gap: 2,
-  },
-  statValue: { fontSize: 17, fontWeight: '800' },
-  statLabel: { fontSize: 11, color: '#9CA3AF', fontWeight: '600', textAlign: 'center' },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  statCell: { alignItems: 'center', minWidth: 64, gap: 2 },
+  statValue: { fontSize: 15, fontWeight: '800' },
+  statLabel: { fontSize: 10, color: '#9CA3AF', fontWeight: '600', textAlign: 'center' },
 
-  winningRule: {
-    fontSize: 13,
-    color: '#9CA3AF',
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
+  winningRule: { fontSize: 12, color: '#9CA3AF', textAlign: 'center', fontStyle: 'italic' },
 
-  // Actions
   actions: { width: '100%', gap: 12 },
   primaryBtn: {
-    backgroundColor: '#6C63FF',
-    borderRadius: 18,
-    paddingVertical: 18,
-    alignItems: 'center',
+    backgroundColor: '#6C63FF', borderRadius: 18, paddingVertical: 18, alignItems: 'center',
+    shadowColor: '#6C63FF', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 6,
   },
   primaryBtnText: { color: '#fff', fontSize: 20, fontWeight: '900' },
   secondaryBtn: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 18,
-    paddingVertical: 16,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
+    backgroundColor: '#F3F4F6', borderRadius: 18, paddingVertical: 16,
+    alignItems: 'center', borderWidth: 2, borderColor: '#E5E7EB',
   },
-  secondaryBtnText: { color: '#374151', fontSize: 18, fontWeight: '700' },
+  secondaryBtnText: { color: '#374151', fontSize: 17, fontWeight: '700' },
 });

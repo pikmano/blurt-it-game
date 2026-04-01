@@ -41,6 +41,8 @@ function buildInitialStats(config: GameConfig): Record<string, PlayerStats> {
       answerCount: 0,
       categoryCorrect: { animals: 0, countries: 0, cities: 0, plants: 0 },
       letterHistory: [],
+      currentStreak: 0,
+      maxStreak: 0,
     };
   }
   return stats;
@@ -115,6 +117,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         [currentCategory]: ps.categoryCorrect[currentCategory] + 1,
       };
       ps.letterHistory = [...ps.letterHistory, currentLetter];
+      ps.currentStreak += 1;
+      ps.maxStreak = Math.max(ps.maxStreak, ps.currentStreak);
       updatedStats[playerId] = ps;
 
       return {
@@ -151,6 +155,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       ps.totalResponseTime += responseTime;
       ps.answerCount += 1;
       ps.letterHistory = [...ps.letterHistory, currentLetter];
+      ps.currentStreak = 0;
       updatedStats[playerId] = ps;
 
       return {

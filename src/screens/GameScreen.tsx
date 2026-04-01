@@ -6,6 +6,7 @@ import {
   SafeAreaView,
   Vibration,
   Platform,
+  Animated,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -19,6 +20,7 @@ import { randomTurn } from '../utils/randomPicker';
 import { CircularTimer } from '../components/CircularTimer';
 import { AnswerInput } from '../components/AnswerInput';
 import { FeedbackOverlay } from '../components/FeedbackOverlay';
+import { ConfettiAnimation } from '../components/ConfettiAnimation';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Game'>;
@@ -27,13 +29,20 @@ type Props = {
 type Phase = 'announcing' | 'playing' | 'result';
 type FeedbackType = 'correct' | 'wrong' | 'timeout' | null;
 
-const RESULT_DISPLAY_MS = 1600;
+const RESULT_DISPLAY_MS = 1800;
 const ANNOUNCE_DELAY_MS = 600;
 
 const AVATAR_COLORS = [
   '#6C63FF', '#FF6584', '#43BCCD', '#F7B731', '#26de81',
   '#FC5C65', '#45AAF2', '#A55EEA', '#FD9644', '#2BCBBA',
 ];
+
+const CATEGORY_ICONS: Record<Category, string> = {
+  animals:   '🐘',
+  countries: '🌍',
+  cities:    '🏙️',
+  plants:    '🌿',
+};
 
 export function GameScreen({ navigation }: Props) {
   const { strings, settings, isRTL } = useAppSettings();
@@ -43,20 +52,22 @@ export function GameScreen({ navigation }: Props) {
   const [phase, setPhase] = useState<Phase>('announcing');
   const [feedback, setFeedback] = useState<FeedbackType>(null);
   const [feedbackLabel, setFeedbackLabel] = useState('');
+  const [confettiKey, setConfettiKey] = useState(0);
 
-  // Refs for values needed inside async callbacks (avoids stale closures)
+  // Letter bounce animation
+  const letterScale = useRef(new Animated.Value(0)).current;
+  const letterRotate = useRef(new Animated.Value(-15)).current;
+
+  // Refs for values needed inside async callbacks
   const phaseRef = useRef<Phase>('announcing');
   const turnStartTimeRef = useRef(0);
   const stateRef = useRef(state);
   useEffect(() => { stateRef.current = state; }, [state]);
 
-  // Current category/letter tracked locally so we can reuse on correct answer
   const activeCategoryRef = useRef<Category | null>(null);
   const activeLetterRef = useRef<string | null>(null);
 
-  // Guard against double-firing startTurn in the same cycle
   const turnInProgressRef = useRef(false);
-  // Prevent multiple pending setTimeout chains
   const pendingTurnRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updatePhase = (p: Phase) => {
@@ -64,12 +75,21 @@ export function GameScreen({ navigation }: Props) {
     setPhase(p);
   };
 
-  // ─── Guard: bail if state is wrong ────────────────────────────────────────
+  const animateLetter = () => {
+    letterScale.setValue(0);
+    letterRotate.setValue(-20);
+    Animated.parallel([
+      Animated.spring(letterScale, { toValue: 1, useNativeDriver: true, tension: 200, friction: 6 }),
+      Animated.spring(letterRotate, { toValue: 0, useNativeDriver: true, tension: 150, friction: 8 }),
+    ]).start();
+  };
+
+  // ─── Guard ────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!state.config || state.status === 'idle') navigation.replace('Home');
   }, []);
 
-  // ─── Stop everything when game finishes ───────────────────────────────────
+  // ─── Stop on finish ───────────────────────────────────────────────────────
   useEffect(() => {
     if (state.status === 'finished') {
       timer.stop();
@@ -112,14 +132,7 @@ export function GameScreen({ navigation }: Props) {
     },
   });
 
-  // ─── Core: start a turn ───────────────────────────────────────────────────
-  /**
-   * @param keepCurrentTurn  true  = same letter/category (after correct answer)
-   *                         false = pick a new one (after foul / first turn)
-   * @param playerIndex      Which player's turn this is. Pass explicitly so we
-   *                         don't depend on React state that may not have updated
-   *                         yet after ADVANCE_TURN was dispatched.
-   */
+  // ─── Start a turn ─────────────────────────────────────────────────────────
   const startTurn = useCallback((keepCurrentTurn: boolean, playerIndex: number) => {
     const currentState = stateRef.current;
     if (!currentState.config) return;
@@ -146,6 +159,7 @@ export function GameScreen({ navigation }: Props) {
     updatePhase('announcing');
     setFeedback(null);
     timer.stop();
+    animateLetter();
 
     const catLabel = t.game.categories[category];
     const announcement = t.tts.yourTurn(player.name, catLabel, letter.toUpperCase());
@@ -162,7 +176,7 @@ export function GameScreen({ navigation }: Props) {
     pendingTurnRef.current = id;
   }, [settings, t, timer, dispatch]);
 
-  // ─── Kick off first turn on game start ────────────────────────────────────
+  // ─── Kick off first turn ──────────────────────────────────────────────────
   const gameStartedRef = useRef(false);
   useEffect(() => {
     if (state.status === 'playing' && !gameStartedRef.current) {
@@ -171,7 +185,7 @@ export function GameScreen({ navigation }: Props) {
     }
   }, [state.status]);
 
-  // ─── Show feedback, advance turn, then start next turn ────────────────────
+  // ─── Feedback + advance ───────────────────────────────────────────────────
   const showFeedbackAndAdvance = useCallback((
     type: FeedbackType,
     label: string,
@@ -182,6 +196,8 @@ export function GameScreen({ navigation }: Props) {
     setFeedbackLabel(label);
     stopSpeaking();
     timer.stop();
+
+    if (wasCorrect) setConfettiKey(k => k + 1);
 
     if (settings.ttsEnabled) {
       const mood = type === 'correct' ? 'excited' : 'sad';
@@ -196,11 +212,9 @@ export function GameScreen({ navigation }: Props) {
       pendingTurnRef.current = null;
       setFeedback(null);
 
-      // Read latest state from ref — this is safe inside a timeout
       const { config, currentPlayerIndex, currentCycle } = stateRef.current;
       if (!config) return;
 
-      // Calculate next player BEFORE dispatching so we have the correct name
       const numPlayers = config.players.length;
       const nextIdx = (currentPlayerIndex + 1) % numPlayers;
       const nextCycle = nextIdx === 0 ? currentCycle + 1 : currentCycle;
@@ -211,7 +225,6 @@ export function GameScreen({ navigation }: Props) {
       if (!isGameOver) {
         startTurn(wasCorrect, nextIdx);
       }
-      // If isGameOver, the useEffect watching state.status handles navigation
     }, RESULT_DISPLAY_MS);
     pendingTurnRef.current = id;
   }, [settings, t, timer, dispatch, startTurn]);
@@ -252,7 +265,7 @@ export function GameScreen({ navigation }: Props) {
     }
   };
 
-  // ─── Cleanup on unmount ───────────────────────────────────────────────────
+  // ─── Cleanup ──────────────────────────────────────────────────────────────
   useEffect(() => () => {
     timer.stop();
     stopSpeaking();
@@ -265,13 +278,21 @@ export function GameScreen({ navigation }: Props) {
   const currentPlayerIndex = state.currentPlayerIndex;
   const currentPlayer = state.config.players[currentPlayerIndex];
   const avatarColor = AVATAR_COLORS[currentPlayerIndex % AVATAR_COLORS.length];
-  const categoryLabel = activeCategoryRef.current ? t.game.categories[activeCategoryRef.current] : '...';
+  const activeCategory = activeCategoryRef.current;
+  const categoryLabel = activeCategory ? t.game.categories[activeCategory] : '...';
+  const categoryIcon = activeCategory ? CATEGORY_ICONS[activeCategory] : '🎯';
   const letterDisplay = (activeLetterRef.current ?? '?').toUpperCase();
   const stats = currentPlayer ? state.playerStats[currentPlayer.id] : null;
   const progressLabel = t.game.round(state.currentCycle, state.config.numberOfCycles);
+  const streak = stats?.currentStreak ?? 0;
+
+  const letterRotation = letterRotate.interpolate({ inputRange: [-20, 0], outputRange: ['-20deg', '0deg'] });
 
   return (
     <SafeAreaView style={styles.safe}>
+      {/* Confetti on correct */}
+      <ConfettiAnimation key={confettiKey} />
+
       {/* Progress bar */}
       <View style={styles.progressBar}>
         <View style={[styles.progressFill, { width: `${(completedTurns / totalTurns) * 100}%` }]} />
@@ -282,6 +303,9 @@ export function GameScreen({ navigation }: Props) {
         <View style={[styles.header, isRTL && styles.headerRTL]}>
           <Text style={styles.roundLabel}>{progressLabel}</Text>
           <View style={styles.statsRow}>
+            {streak >= 2 && (
+              <Text style={styles.streakPill}>🔥 {streak}</Text>
+            )}
             <Text style={styles.scorePill}>✅ {stats?.correct ?? 0}</Text>
             <Text style={styles.foulPill}>❌ {stats?.fouls ?? 0}</Text>
           </View>
@@ -298,21 +322,29 @@ export function GameScreen({ navigation }: Props) {
         )}
 
         {/* Category & Letter */}
-        <View style={styles.challengeCard}>
+        <View style={[styles.challengeCard, { borderColor: avatarColor + '40' }]}>
           <View style={styles.challengeRow}>
             <View style={styles.challengeItem}>
               <Text style={styles.challengeMeta}>{t.game.category}</Text>
+              <Text style={styles.categoryIcon}>{categoryIcon}</Text>
               <Text style={styles.challengeValue}>{categoryLabel}</Text>
             </View>
             <View style={styles.divider} />
             <View style={styles.challengeItem}>
               <Text style={styles.challengeMeta}>{t.game.letter}</Text>
-              <Text style={[styles.letterValue, { color: avatarColor }]}>{letterDisplay}</Text>
+              <Animated.Text
+                style={[
+                  styles.letterValue,
+                  { color: avatarColor, transform: [{ scale: letterScale }, { rotate: letterRotation }] },
+                ]}
+              >
+                {letterDisplay}
+              </Animated.Text>
             </View>
           </View>
         </View>
 
-        {/* Timer / announcing pill */}
+        {/* Timer / announcing */}
         {phase === 'playing' && (
           <CircularTimer
             secondsLeft={timer.secondsLeft}
@@ -322,8 +354,10 @@ export function GameScreen({ navigation }: Props) {
           />
         )}
         {phase === 'announcing' && currentPlayer && (
-          <View style={styles.announcingPill}>
-            <Text style={styles.announcingText}>📢 {t.game.yourTurn(currentPlayer.name)}</Text>
+          <View style={[styles.announcingPill, { backgroundColor: avatarColor + '22', borderColor: avatarColor }]}>
+            <Text style={[styles.announcingText, { color: avatarColor }]}>
+              📢 {t.game.yourTurn(currentPlayer.name)}
+            </Text>
           </View>
         )}
 
@@ -348,20 +382,24 @@ export function GameScreen({ navigation }: Props) {
         )}
       </View>
 
-      <FeedbackOverlay feedback={feedback} label={feedbackLabel} />
+      <FeedbackOverlay feedback={feedback} label={feedbackLabel} streak={streak} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#F9FAFB' },
-  progressBar: { height: 4, backgroundColor: '#E5E7EB' },
-  progressFill: { height: 4, backgroundColor: '#6C63FF', borderRadius: 2 },
-  container: { flex: 1, alignItems: 'center', padding: 20, gap: 20 },
+  progressBar: { height: 5, backgroundColor: '#E5E7EB' },
+  progressFill: { height: 5, backgroundColor: '#6C63FF', borderRadius: 2 },
+  container: { flex: 1, alignItems: 'center', padding: 20, gap: 16 },
   header: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerRTL: { flexDirection: 'row-reverse' },
   roundLabel: { fontSize: 15, fontWeight: '700', color: '#6B7280' },
-  statsRow: { flexDirection: 'row', gap: 8 },
+  statsRow: { flexDirection: 'row', gap: 6, alignItems: 'center' },
+  streakPill: {
+    backgroundColor: '#FEF3C7', color: '#92400E', fontWeight: '900',
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, fontSize: 14, overflow: 'hidden',
+  },
   scorePill: {
     backgroundColor: '#DCFCE7', color: '#166534', fontWeight: '700',
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, fontSize: 14, overflow: 'hidden',
@@ -379,15 +417,17 @@ const styles = StyleSheet.create({
   playerName: { fontSize: 22, fontWeight: '800', color: '#111827' },
   challengeCard: {
     width: '100%', backgroundColor: '#fff', borderRadius: 20, padding: 20,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 3,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 8,
+    elevation: 3, borderWidth: 2,
   },
   challengeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
-  challengeItem: { alignItems: 'center', flex: 1, gap: 4 },
-  challengeMeta: { fontSize: 13, fontWeight: '600', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 1 },
-  challengeValue: { fontSize: 24, fontWeight: '800', color: '#111827' },
-  letterValue: { fontSize: 52, fontWeight: '900', lineHeight: 60 },
-  divider: { width: 1, height: 60, backgroundColor: '#E5E7EB' },
-  announcingPill: { backgroundColor: '#EEF2FF', borderRadius: 16, paddingHorizontal: 20, paddingVertical: 12 },
-  announcingText: { color: '#6C63FF', fontWeight: '700', fontSize: 16, textAlign: 'center' },
+  challengeItem: { alignItems: 'center', flex: 1, gap: 2 },
+  challengeMeta: { fontSize: 11, fontWeight: '700', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 1 },
+  categoryIcon: { fontSize: 28 },
+  challengeValue: { fontSize: 20, fontWeight: '800', color: '#111827' },
+  letterValue: { fontSize: 56, fontWeight: '900', lineHeight: 64 },
+  divider: { width: 1, height: 70, backgroundColor: '#E5E7EB' },
+  announcingPill: { borderRadius: 16, paddingHorizontal: 20, paddingVertical: 12, borderWidth: 1.5 },
+  announcingText: { fontWeight: '700', fontSize: 16, textAlign: 'center' },
   inputSection: { width: '100%' },
 });
