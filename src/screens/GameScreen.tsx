@@ -4,11 +4,8 @@ import {
   Text,
   StyleSheet,
   SafeAreaView,
-  Vibration,
-  Platform,
   Animated,
 } from 'react-native';
-import * as Haptics from 'expo-haptics';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, Category } from '../types';
 import { useAppSettings } from '../context/AppSettingsContext';
@@ -18,7 +15,7 @@ import { useSpeechRecognition, speakText, stopSpeaking } from '../hooks/useSpeec
 import { useValidation } from '../hooks/useValidation';
 import { randomTurn } from '../utils/randomPicker';
 import { CircularTimer } from '../components/CircularTimer';
-import { AnswerInput } from '../components/AnswerInput';
+import { AnswerInput, shakeAnswerInput } from '../components/AnswerInput';
 import { FeedbackOverlay } from '../components/FeedbackOverlay';
 import { ConfettiAnimation } from '../components/ConfettiAnimation';
 
@@ -27,9 +24,9 @@ type Props = {
 };
 
 type Phase = 'announcing' | 'playing' | 'result';
-type FeedbackType = 'correct' | 'wrong' | 'timeout' | null;
+type FeedbackType = 'correct' | 'timeout' | null;
 
-const RESULT_DISPLAY_MS = 1800;
+const RESULT_DISPLAY_MS = 2200;
 const ANNOUNCE_DELAY_MS = 600;
 
 const AVATAR_COLORS = [
@@ -52,23 +49,28 @@ export function GameScreen({ navigation }: Props) {
   const [phase, setPhase] = useState<Phase>('announcing');
   const [feedback, setFeedback] = useState<FeedbackType>(null);
   const [feedbackLabel, setFeedbackLabel] = useState('');
+  const [correctWord, setCorrectWord] = useState('');
   const [confettiKey, setConfettiKey] = useState(0);
 
   // Letter bounce animation
-  const letterScale = useRef(new Animated.Value(0)).current;
-  const letterRotate = useRef(new Animated.Value(-15)).current;
+  const letterScale  = useRef(new Animated.Value(0)).current;
+  const letterRotate = useRef(new Animated.Value(-20)).current;
 
-  // Refs for values needed inside async callbacks
-  const phaseRef = useRef<Phase>('announcing');
-  const turnStartTimeRef = useRef(0);
-  const stateRef = useRef(state);
+  // Refs
+  const phaseRef          = useRef<Phase>('announcing');
+  const turnStartTimeRef  = useRef(0);
+  const stateRef          = useRef(state);
   useEffect(() => { stateRef.current = state; }, [state]);
 
   const activeCategoryRef = useRef<Category | null>(null);
-  const activeLetterRef = useRef<string | null>(null);
+  const activeLetterRef   = useRef<string | null>(null);
 
+  // Track what category+letter was last announced (to avoid repeating TTS)
+  const lastAnnouncedRef  = useRef<string>('');
+
+  const pendingTurnRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gameStartedRef    = useRef(false);
   const turnInProgressRef = useRef(false);
-  const pendingTurnRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updatePhase = (p: Phase) => {
     phaseRef.current = p;
@@ -79,58 +81,60 @@ export function GameScreen({ navigation }: Props) {
     letterScale.setValue(0);
     letterRotate.setValue(-20);
     Animated.parallel([
-      Animated.spring(letterScale, { toValue: 1, useNativeDriver: true, tension: 200, friction: 6 }),
+      Animated.spring(letterScale,  { toValue: 1, useNativeDriver: true, tension: 200, friction: 6 }),
       Animated.spring(letterRotate, { toValue: 0, useNativeDriver: true, tension: 150, friction: 8 }),
     ]).start();
   };
 
-  // ─── Guard ────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!state.config || state.status === 'idle') navigation.replace('Home');
-  }, []);
+  // ─── Validation ───────────────────────────────────────────────────────────
+  const { validate } = useValidation({
+    category: activeCategoryRef.current,
+    letter:   activeLetterRef.current,
+    language: settings.language,
+    usedWords: state.usedWords,
+  });
+  const validateRef = useRef(validate);
+  useEffect(() => { validateRef.current = validate; }, [validate]);
 
-  // ─── Stop on finish ───────────────────────────────────────────────────────
-  useEffect(() => {
-    if (state.status === 'finished') {
-      timer.stop();
-      stopSpeaking();
-      if (pendingTurnRef.current) {
-        clearTimeout(pendingTurnRef.current);
-        pendingTurnRef.current = null;
-      }
-      navigation.replace('Results');
-    }
-  }, [state.status]);
+  // ─── Speech ───────────────────────────────────────────────────────────────
+  const speech = useSpeechRecognition({
+    language: settings.language,
+    onResult: useCallback((transcript: string, isFinal: boolean) => {
+      // Only act on final results during playing phase
+      if (phaseRef.current !== 'playing') return;
+      if (!isFinal) return;
+      handleAnswer(transcript);
+    }, []),
+  });
 
   // ─── Timer ────────────────────────────────────────────────────────────────
   const handleTimeUp = useCallback(() => {
     if (phaseRef.current !== 'playing') return;
+    speech.stopListening();
     const elapsed = Date.now() - turnStartTimeRef.current;
     dispatch({ type: 'FOUL', payload: { reason: 'time_up', responseTime: elapsed } });
-    showFeedbackAndAdvance('timeout', t.game.timeUp, false);
-    haptic('error');
-  }, [dispatch, t]);
+    showFeedbackAndAdvance('timeout', t.game.timeUp, false, '');
+  }, [dispatch, t, speech]);
 
   const timer = useTimer({
     durationSeconds: state.config?.secondsPerTurn ?? 30,
     onExpire: handleTimeUp,
   });
 
-  // ─── Validation ───────────────────────────────────────────────────────────
-  const { validate } = useValidation({
-    category: activeCategoryRef.current,
-    letter: activeLetterRef.current,
-    language: settings.language,
-    usedWords: state.usedWords,
-  });
+  // ─── Guard + finish ───────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!state.config || state.status === 'idle') navigation.replace('Home');
+  }, []);
 
-  // ─── Speech ───────────────────────────────────────────────────────────────
-  const speech = useSpeechRecognition({
-    language: settings.language,
-    onResult: (transcript) => {
-      if (phaseRef.current === 'playing') handleAnswer(transcript);
-    },
-  });
+  useEffect(() => {
+    if (state.status === 'finished') {
+      timer.stop();
+      stopSpeaking();
+      speech.stopListening();
+      if (pendingTurnRef.current) { clearTimeout(pendingTurnRef.current); pendingTurnRef.current = null; }
+      navigation.replace('Results');
+    }
+  }, [state.status]);
 
   // ─── Start a turn ─────────────────────────────────────────────────────────
   const startTurn = useCallback((keepCurrentTurn: boolean, playerIndex: number) => {
@@ -146,38 +150,52 @@ export function GameScreen({ navigation }: Props) {
 
     if (keepCurrentTurn && activeCategoryRef.current && activeLetterRef.current) {
       category = activeCategoryRef.current;
-      letter = activeLetterRef.current;
+      letter   = activeLetterRef.current;
     } else {
       const picked = randomTurn(currentState.config.language);
       category = picked.category;
-      letter = picked.letter;
+      letter   = picked.letter;
       activeCategoryRef.current = category;
-      activeLetterRef.current = letter;
+      activeLetterRef.current   = letter;
       dispatch({ type: 'BEGIN_TURN', payload: { category, letter } });
     }
 
     updatePhase('announcing');
     setFeedback(null);
+    setCorrectWord('');
     timer.stop();
     animateLetter();
 
-    const catLabel = t.game.categories[category];
-    const announcement = t.tts.yourTurn(player.name, catLabel, letter.toUpperCase());
+    // TTS: full announcement only when category+letter changed
+    const turnKey = `${category}-${letter}`;
+    const isNewTurn = lastAnnouncedRef.current !== turnKey;
+
+    let announcement: string;
+    if (isNewTurn) {
+      const catLabel = t.game.categories[category];
+      announcement = t.tts.yourTurn(player.name, catLabel, letter.toUpperCase());
+      lastAnnouncedRef.current = turnKey;
+    } else {
+      // Same category+letter — just say the player name
+      announcement = player.name;
+    }
+
     if (settings.ttsEnabled) speakText(announcement, settings.language);
 
-    const delay = settings.ttsEnabled ? 2500 : ANNOUNCE_DELAY_MS;
+    const delay = settings.ttsEnabled ? (isNewTurn ? 2800 : 1200) : ANNOUNCE_DELAY_MS;
     const id = setTimeout(() => {
-      pendingTurnRef.current = null;
+      pendingTurnRef.current  = null;
       turnInProgressRef.current = false;
       updatePhase('playing');
       turnStartTimeRef.current = Date.now();
       timer.start();
+      // Auto-start voice recognition
+      if (speech.isAvailable) speech.startListening();
     }, delay);
     pendingTurnRef.current = id;
-  }, [settings, t, timer, dispatch]);
+  }, [settings, t, timer, dispatch, speech]);
 
   // ─── Kick off first turn ──────────────────────────────────────────────────
-  const gameStartedRef = useRef(false);
   useEffect(() => {
     if (state.status === 'playing' && !gameStartedRef.current) {
       gameStartedRef.current = true;
@@ -185,90 +203,75 @@ export function GameScreen({ navigation }: Props) {
     }
   }, [state.status]);
 
-  // ─── Feedback + advance ───────────────────────────────────────────────────
+  // ─── Show feedback then advance ───────────────────────────────────────────
   const showFeedbackAndAdvance = useCallback((
     type: FeedbackType,
     label: string,
     wasCorrect: boolean,
+    word: string,
   ) => {
     updatePhase('result');
     setFeedback(type);
     setFeedbackLabel(label);
+    setCorrectWord(word);
     stopSpeaking();
     timer.stop();
+    speech.stopListening();
 
-    if (wasCorrect) setConfettiKey(k => k + 1);
-
-    if (settings.ttsEnabled) {
-      const mood = type === 'correct' ? 'excited' : 'sad';
-      speakText(
-        type === 'correct' ? t.tts.correct : type === 'timeout' ? t.tts.timeUp : t.tts.wrong,
-        settings.language,
-        mood,
-      );
+    if (wasCorrect) {
+      setConfettiKey(k => k + 1);
+      if (settings.ttsEnabled) {
+        // Say "Correct! WORD" with excited voice
+        speakText(`${t.tts.correct} ${word}`, settings.language, 'excited');
+      }
+    } else {
+      if (settings.ttsEnabled) {
+        speakText(t.tts.timeUp, settings.language, 'sad');
+      }
     }
 
     const id = setTimeout(() => {
       pendingTurnRef.current = null;
       setFeedback(null);
+      setCorrectWord('');
 
       const { config, currentPlayerIndex, currentCycle } = stateRef.current;
       if (!config) return;
 
-      const numPlayers = config.players.length;
-      const nextIdx = (currentPlayerIndex + 1) % numPlayers;
+      const nextIdx   = (currentPlayerIndex + 1) % config.players.length;
       const nextCycle = nextIdx === 0 ? currentCycle + 1 : currentCycle;
       const isGameOver = nextCycle > config.numberOfCycles;
 
       dispatch({ type: 'ADVANCE_TURN' });
-
-      if (!isGameOver) {
-        startTurn(wasCorrect, nextIdx);
-      }
+      if (!isGameOver) startTurn(wasCorrect, nextIdx);
     }, RESULT_DISPLAY_MS);
     pendingTurnRef.current = id;
-  }, [settings, t, timer, dispatch, startTurn]);
+  }, [settings, t, timer, speech, dispatch, startTurn]);
 
   // ─── Answer handler ───────────────────────────────────────────────────────
+  // Wrong answers are silently ignored (shake + clear). Only correct = advance.
   const handleAnswer = useCallback((answer: string) => {
     if (phaseRef.current !== 'playing') return;
-    timer.stop();
-    speech.stopListening();
 
-    const elapsed = Date.now() - turnStartTimeRef.current;
-    const result = validate(answer);
+    const result = validateRef.current(answer);
 
     if (result.valid) {
+      timer.stop();
+      speech.stopListening();
+      const elapsed = Date.now() - turnStartTimeRef.current;
       dispatch({ type: 'CORRECT_ANSWER', payload: { answer, responseTime: elapsed } });
-      showFeedbackAndAdvance('correct', t.game.correct, true);
-      haptic('success');
+      showFeedbackAndAdvance('correct', t.game.correct, true, answer);
     } else {
-      const reason = result.reason!;
-      const label = reason === 'already_used' ? t.game.alreadyUsed : t.game.wrong;
-      dispatch({ type: 'FOUL', payload: { reason, answer, responseTime: elapsed } });
-      showFeedbackAndAdvance('wrong', label, false);
-      haptic('error');
+      // Wrong — shake input and keep going, no foul
+      shakeAnswerInput();
     }
-  }, [timer, speech, validate, dispatch, showFeedbackAndAdvance, t]);
-
-  // ─── Haptics ──────────────────────────────────────────────────────────────
-  const haptic = (type: 'success' | 'error') => {
-    if (!settings.soundEnabled) return;
-    if (Platform.OS === 'ios') {
-      Haptics.notificationAsync(
-        type === 'success'
-          ? Haptics.NotificationFeedbackType.Success
-          : Haptics.NotificationFeedbackType.Error
-      );
-    } else {
-      Vibration.vibrate(type === 'success' ? 50 : [0, 80, 50, 80]);
-    }
-  };
+  }, [timer, speech, dispatch, showFeedbackAndAdvance, t]);
 
   // ─── Cleanup ──────────────────────────────────────────────────────────────
   useEffect(() => () => {
     timer.stop();
     stopSpeaking();
+    speech.stopListening();
     if (pendingTurnRef.current) clearTimeout(pendingTurnRef.current);
   }, []);
 
@@ -276,21 +279,20 @@ export function GameScreen({ navigation }: Props) {
   if (!state.config) return null;
 
   const currentPlayerIndex = state.currentPlayerIndex;
-  const currentPlayer = state.config.players[currentPlayerIndex];
-  const avatarColor = AVATAR_COLORS[currentPlayerIndex % AVATAR_COLORS.length];
-  const activeCategory = activeCategoryRef.current;
-  const categoryLabel = activeCategory ? t.game.categories[activeCategory] : '...';
-  const categoryIcon = activeCategory ? CATEGORY_ICONS[activeCategory] : '🎯';
-  const letterDisplay = (activeLetterRef.current ?? '?').toUpperCase();
-  const stats = currentPlayer ? state.playerStats[currentPlayer.id] : null;
-  const progressLabel = t.game.round(state.currentCycle, state.config.numberOfCycles);
-  const streak = stats?.currentStreak ?? 0;
+  const currentPlayer      = state.config.players[currentPlayerIndex];
+  const avatarColor        = AVATAR_COLORS[currentPlayerIndex % AVATAR_COLORS.length];
+  const activeCategory     = activeCategoryRef.current;
+  const categoryLabel      = activeCategory ? t.game.categories[activeCategory] : '...';
+  const categoryIcon       = activeCategory ? CATEGORY_ICONS[activeCategory] : '🎯';
+  const letterDisplay      = (activeLetterRef.current ?? '?').toUpperCase();
+  const stats              = currentPlayer ? state.playerStats[currentPlayer.id] : null;
+  const progressLabel      = t.game.round(state.currentCycle, state.config.numberOfCycles);
+  const streak             = stats?.currentStreak ?? 0;
 
   const letterRotation = letterRotate.interpolate({ inputRange: [-20, 0], outputRange: ['-20deg', '0deg'] });
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Confetti on correct */}
       <ConfettiAnimation key={confettiKey} />
 
       {/* Progress bar */}
@@ -303,11 +305,8 @@ export function GameScreen({ navigation }: Props) {
         <View style={[styles.header, isRTL && styles.headerRTL]}>
           <Text style={styles.roundLabel}>{progressLabel}</Text>
           <View style={styles.statsRow}>
-            {streak >= 2 && (
-              <Text style={styles.streakPill}>🔥 {streak}</Text>
-            )}
+            {streak >= 2 && <Text style={styles.streakPill}>🔥 {streak}</Text>}
             <Text style={styles.scorePill}>✅ {stats?.correct ?? 0}</Text>
-            <Text style={styles.foulPill}>❌ {stats?.fouls ?? 0}</Text>
           </View>
         </View>
 
@@ -344,7 +343,7 @@ export function GameScreen({ navigation }: Props) {
           </View>
         </View>
 
-        {/* Timer / announcing */}
+        {/* Timer */}
         {phase === 'playing' && (
           <CircularTimer
             secondsLeft={timer.secondsLeft}
@@ -353,6 +352,8 @@ export function GameScreen({ navigation }: Props) {
             size={150}
           />
         )}
+
+        {/* Announcing */}
         {phase === 'announcing' && currentPlayer && (
           <View style={[styles.announcingPill, { backgroundColor: avatarColor + '22', borderColor: avatarColor }]}>
             <Text style={[styles.announcingText, { color: avatarColor }]}>
@@ -361,7 +362,7 @@ export function GameScreen({ navigation }: Props) {
           </View>
         )}
 
-        {/* Input */}
+        {/* Input (always shown during playing) */}
         {phase === 'playing' && (
           <View style={styles.inputSection}>
             <AnswerInput
@@ -369,20 +370,21 @@ export function GameScreen({ navigation }: Props) {
               isListening={speech.isListening}
               isSpeechAvailable={speech.isAvailable}
               transcript={speech.transcript}
-              onStartListening={speech.startListening}
               onStopListening={speech.stopListening}
               placeholder={t.game.speakOrType}
               submitLabel={t.game.submit}
-              tapToSpeakLabel={t.game.tapToSpeak}
-              stopLabel={t.game.stopListening}
-              tapToTypeLabel={t.game.tapToType}
               isRTL={isRTL}
             />
           </View>
         )}
       </View>
 
-      <FeedbackOverlay feedback={feedback} label={feedbackLabel} streak={streak} />
+      <FeedbackOverlay
+        feedback={feedback}
+        label={feedbackLabel}
+        streak={streak}
+        correctWord={correctWord}
+      />
     </SafeAreaView>
   );
 }
@@ -402,10 +404,6 @@ const styles = StyleSheet.create({
   },
   scorePill: {
     backgroundColor: '#DCFCE7', color: '#166534', fontWeight: '700',
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, fontSize: 14, overflow: 'hidden',
-  },
-  foulPill: {
-    backgroundColor: '#FEE2E2', color: '#991B1B', fontWeight: '700',
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, fontSize: 14, overflow: 'hidden',
   },
   playerSection: { alignItems: 'center', gap: 6 },

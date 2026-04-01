@@ -36,12 +36,13 @@ export function stopSpeaking(): void {
 }
 
 // ─── Speech Recognition Hook ──────────────────────────────────────────────────
-// Uses iOS SFSpeechRecognizer / Android SpeechRecognizer — free, on-device.
-// Requires a compiled app (EAS dev build). Falls back to text-only in Expo Go.
+// Continuous mode: auto-restarts after silence so recognition never drops
+// during a turn. Call startContinuous() when turn begins, stopContinuous()
+// when it ends.
 
 interface UseSpeechRecognitionOptions {
   language: Language;
-  onResult: (transcript: string) => void;
+  onResult: (transcript: string, isFinal: boolean) => void;
   onError?: (error: string) => void;
 }
 
@@ -49,8 +50,8 @@ interface UseSpeechRecognitionReturn {
   isListening: boolean;
   isAvailable: boolean;
   transcript: string;
-  startListening: () => Promise<void>;
-  stopListening: () => void;
+  startListening: () => Promise<void>;   // alias for startContinuous
+  stopListening: () => void;              // alias for stopContinuous
 }
 
 export function useSpeechRecognition({
@@ -61,48 +62,68 @@ export function useSpeechRecognition({
   const [isListening, setIsListening] = useState(false);
   const [isAvailable, setIsAvailable] = useState(false);
   const [transcript, setTranscript] = useState('');
-  const onResultRef = useRef(onResult);
-  const onErrorRef = useRef(onError);
-  onResultRef.current = onResult;
-  onErrorRef.current = onError;
 
-  // Check if native STT is available (true in compiled build, false in Expo Go)
+  const activeRef   = useRef(false);   // whether we WANT to be listening
+  const langRef     = useRef(language);
+  const onResultRef = useRef(onResult);
+  const onErrorRef  = useRef(onError);
+  useEffect(() => { langRef.current = language; }, [language]);
+  onResultRef.current = onResult;
+  onErrorRef.current  = onError;
+
+  // Check availability once
   useEffect(() => {
     try {
       const result = ExpoSpeechRecognitionModule.isRecognitionAvailable();
-      // Handle both sync (boolean) and async (Promise) return values
       if (result && typeof (result as any).then === 'function') {
         (result as unknown as Promise<boolean>).then(setIsAvailable).catch(() => setIsAvailable(false));
       } else {
         setIsAvailable(Boolean(result));
       }
-    } catch {
-      setIsAvailable(false);
-    }
+    } catch { setIsAvailable(false); }
 
     return () => {
       try { ExpoSpeechRecognitionModule.abort(); } catch {}
     };
   }, []);
 
+  const doStart = useCallback(() => {
+    try {
+      ExpoSpeechRecognitionModule.start({
+        lang: STT_LOCALE[langRef.current],
+        interimResults: true,
+        continuous: false, // we handle continuity ourselves via auto-restart
+      });
+    } catch {}
+  }, []);
+
+  // ─── Events ────────────────────────────────────────────────────────────────
+
   useSpeechRecognitionEvent('result', (event: any) => {
     const text: string = event.results?.[0]?.transcript ?? '';
     if (!text) return;
     setTranscript(text);
-    if (event.isFinal) {
-      setIsListening(false);
-      onResultRef.current(text);
-    }
+    onResultRef.current(text, event.isFinal ?? false);
   });
 
   useSpeechRecognitionEvent('error', (event: any) => {
-    setIsListening(false);
     onErrorRef.current?.(event.error ?? 'unknown');
+    // auto-restart unless we deliberately stopped
+    if (activeRef.current) {
+      setTimeout(() => { if (activeRef.current) doStart(); }, 300);
+    }
   });
 
   useSpeechRecognitionEvent('end', () => {
-    setIsListening(false);
+    // auto-restart to keep continuous listening
+    if (activeRef.current) {
+      setTimeout(() => { if (activeRef.current) doStart(); }, 200);
+    } else {
+      setIsListening(false);
+    }
   });
+
+  // ─── Public API ────────────────────────────────────────────────────────────
 
   const startListening = useCallback(async () => {
     if (!isAvailable) return;
@@ -111,19 +132,16 @@ export function useSpeechRecognition({
       if (!granted) return;
       setTranscript('');
       setIsListening(true);
-      ExpoSpeechRecognitionModule.start({
-        lang: STT_LOCALE[language],
-        interimResults: true,
-        continuous: false,
-      });
-    } catch {
-      setIsListening(false);
-    }
-  }, [isAvailable, language]);
+      activeRef.current = true;
+      doStart();
+    } catch { setIsListening(false); }
+  }, [isAvailable, doStart]);
 
   const stopListening = useCallback(() => {
-    try { ExpoSpeechRecognitionModule.stop(); } catch {}
+    activeRef.current = false;
     setIsListening(false);
+    setTranscript('');
+    try { ExpoSpeechRecognitionModule.stop(); } catch {}
   }, []);
 
   return { isListening, isAvailable, transcript, startListening, stopListening };

@@ -7,6 +7,7 @@ interface FeedbackOverlayProps {
   feedback: FeedbackType;
   label: string;
   streak?: number;
+  correctWord?: string;   // shown when feedback === 'correct'
 }
 
 const { width } = Dimensions.get('window');
@@ -19,7 +20,7 @@ const CONFIGS: Record<NonNullable<FeedbackType>, { bg: string; icon: string; par
 
 const STREAK_MESSAGES = ['', '', '🔥 x2!', '🔥 x3!', '⚡ x4!', '⚡ x5!', '💥 ON FIRE!'];
 
-export function FeedbackOverlay({ feedback, label, streak = 0 }: FeedbackOverlayProps) {
+export function FeedbackOverlay({ feedback, label, streak = 0, correctWord }: FeedbackOverlayProps) {
   const opacity  = useRef(new Animated.Value(0)).current;
   const scale    = useRef(new Animated.Value(0.3)).current;
   const labelY   = useRef(new Animated.Value(30)).current;
@@ -101,6 +102,11 @@ export function FeedbackOverlay({ feedback, label, streak = 0 }: FeedbackOverlay
         <Animated.Text style={[styles.label, { transform: [{ translateY: labelY }] }]}>
           {label}
         </Animated.Text>
+        {correctWord ? (
+          <Animated.Text style={[styles.correctWord, { transform: [{ translateY: labelY }] }]}>
+            {correctWord.toUpperCase()}
+          </Animated.Text>
+        ) : null}
       </Animated.View>
 
       {/* Streak badge */}
@@ -129,6 +135,17 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.25)',
     textShadowOffset: { width: 0, height: 3 },
     textShadowRadius: 6,
+  },
+  correctWord: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: 'rgba(255,255,255,0.92)',
+    textAlign: 'center',
+    marginTop: 8,
+    letterSpacing: 2,
+    textShadowColor: 'rgba(0,0,0,0.2)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
   particle: {
     position: 'absolute',
