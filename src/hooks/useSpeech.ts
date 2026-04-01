@@ -76,15 +76,23 @@ export function useSpeechRecognition({
   onResultRef.current = onResult;
   onErrorRef.current  = onError;
 
-  // Check availability on mount
+  // Check availability and pre-request permissions on mount
   useEffect(() => {
     try {
       const result = ExpoSpeechRecognitionModule.isRecognitionAvailable();
-      const setValue = (v: boolean) => setIsAvailable(v);
+      const onAvailable = (v: boolean) => {
+        setIsAvailable(v);
+        if (v) {
+          // Pre-request permissions immediately so they are ready before the first turn
+          ExpoSpeechRecognitionModule.requestPermissionsAsync()
+            .then(({ granted }: { granted: boolean }) => { permGranted.current = granted; })
+            .catch(() => {});
+        }
+      };
       if (result && typeof (result as any).then === 'function') {
-        (result as unknown as Promise<boolean>).then(setValue).catch(() => setValue(false));
+        (result as unknown as Promise<boolean>).then(onAvailable).catch(() => setIsAvailable(false));
       } else {
-        setValue(Boolean(result));
+        onAvailable(Boolean(result));
       }
     } catch { /* not available */ }
 
@@ -134,23 +142,34 @@ export function useSpeechRecognition({
     } catch {}
   }, []);
 
-  /** Start continuous listening — skips permission dialog if already granted */
+  /** Start continuous listening. Always tries — never checks isAvailable state. */
   const startListening = useCallback(() => {
     if (activeRef.current) return; // already listening
     setTranscript('');
     setIsListening(true);
     activeRef.current = true;
+
     if (permGranted.current) {
-      // Permissions already granted — start immediately, no async needed
+      // Already granted — fire synchronously, zero delay
       doStart();
     } else {
-      // First time — request and then start
+      // Request (or re-check) permissions then start
       ExpoSpeechRecognitionModule.requestPermissionsAsync()
         .then(({ granted }: { granted: boolean }) => {
           permGranted.current = granted;
-          if (granted && activeRef.current) doStart();
+          if (activeRef.current) {
+            if (granted) {
+              doStart();
+            } else {
+              activeRef.current = false;
+              setIsListening(false);
+            }
+          }
         })
-        .catch(() => {});
+        .catch(() => {
+          activeRef.current = false;
+          setIsListening(false);
+        });
     }
   }, [doStart]);
 

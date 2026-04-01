@@ -190,7 +190,7 @@ export function GameScreen({ navigation }: Props) {
         updatePhase('playing');
         turnStartTimeRef.current = Date.now();
         timer.start();
-        if (speech.isAvailable) speech.startListening();
+        speech.startListening(); // always call — no isAvailable check, hook handles it internally
       }, 400);
     };
 
