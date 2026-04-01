@@ -35,7 +35,15 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": [],
+    "plugins": [
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "AlphaBurst needs your microphone to hear your answers.",
+          "speechRecognitionPermission": "AlphaBurst uses speech recognition to understand your words."
+        }
+      ]
+    ],
     "extra": {
       "eas": {
         "projectId": "your-project-id-here"

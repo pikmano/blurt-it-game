@@ -1,10 +1,19 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import * as Speech from 'expo-speech';
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from 'expo-speech-recognition';
 import { Language } from '../types';
 
 // ─── TTS ─────────────────────────────────────────────────────────────────────
 
 const TTS_LOCALE: Record<Language, string> = {
+  en: 'en-US',
+  he: 'he-IL',
+};
+
+const STT_LOCALE: Record<Language, string> = {
   en: 'en-US',
   he: 'he-IL',
 };
@@ -36,9 +45,6 @@ export function stopSpeaking(): void {
 }
 
 // ─── Speech Recognition Hook ──────────────────────────────────────────────────
-// Voice input via expo-speech-recognition requires a custom dev build and
-// is not available in Expo Go. This hook always reports isAvailable=false,
-// causing AnswerInput to render the text-only fallback.
 
 interface UseSpeechRecognitionOptions {
   language: Language;
@@ -59,20 +65,72 @@ export function useSpeechRecognition({
   onResult,
   onError,
 }: UseSpeechRecognitionOptions): UseSpeechRecognitionReturn {
-  const [isListening] = useState(false);
-  const [transcript] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [isAvailable, setIsAvailable] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const onResultRef = useRef(onResult);
+  const onErrorRef = useRef(onError);
+  useEffect(() => { onResultRef.current = onResult; }, [onResult]);
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
 
-  const startListening = useCallback(async () => {
-    // Not available in Expo Go — use text input instead
+  // Check availability once on mount
+  useEffect(() => {
+    ExpoSpeechRecognitionModule.isRecognitionAvailable().then((available: boolean) => {
+      setIsAvailable(available);
+    }).catch(() => {
+      setIsAvailable(false);
+    });
+
+    return () => {
+      ExpoSpeechRecognitionModule.abort();
+    };
   }, []);
 
-  const stopListening = useCallback(() => {}, []);
+  // Listen for final results
+  useSpeechRecognitionEvent('result', (event: any) => {
+    const text: string = event.results?.[0]?.transcript ?? '';
+    if (text) {
+      setTranscript(text);
+      if (event.isFinal) {
+        setIsListening(false);
+        onResultRef.current(text);
+      }
+    }
+  });
 
-  return {
-    isListening,
-    isAvailable: false, // text-only mode in Expo Go
-    transcript,
-    startListening,
-    stopListening,
-  };
+  // Listen for errors
+  useSpeechRecognitionEvent('error', (event: any) => {
+    setIsListening(false);
+    onErrorRef.current?.(event.error ?? 'unknown error');
+  });
+
+  // Listen for end
+  useSpeechRecognitionEvent('end', () => {
+    setIsListening(false);
+  });
+
+  const startListening = useCallback(async () => {
+    if (!isAvailable) return;
+    try {
+      const { granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!granted) return;
+
+      setTranscript('');
+      setIsListening(true);
+      ExpoSpeechRecognitionModule.start({
+        lang: STT_LOCALE[language],
+        interimResults: true,
+        continuous: false,
+      });
+    } catch {
+      setIsListening(false);
+    }
+  }, [isAvailable, language]);
+
+  const stopListening = useCallback(() => {
+    ExpoSpeechRecognitionModule.stop();
+    setIsListening(false);
+  }, []);
+
+  return { isListening, isAvailable, transcript, startListening, stopListening };
 }
