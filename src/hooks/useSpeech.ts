@@ -1,9 +1,5 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import * as Speech from 'expo-speech';
-import {
-  ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
-} from 'expo-speech-recognition';
 import { Language } from '../types';
 
 // ─── TTS ─────────────────────────────────────────────────────────────────────
@@ -44,6 +40,51 @@ export function stopSpeaking(): void {
   Speech.stop();
 }
 
+// ─── WebView Speech HTML ──────────────────────────────────────────────────────
+
+export function buildSpeechHtml(locale: string): string {
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"/></head>
+<body>
+<script>
+(function() {
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'unavailable' }));
+    return;
+  }
+  var r = new SR();
+  r.lang = '${locale}';
+  r.interimResults = true;
+  r.continuous = false;
+  r.maxAlternatives = 1;
+
+  r.onresult = function(e) {
+    var t = e.results[e.results.length - 1];
+    window.ReactNativeWebView.postMessage(JSON.stringify({
+      type: 'result',
+      transcript: t[0].transcript,
+      isFinal: t.isFinal
+    }));
+  };
+  r.onerror = function(e) {
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'error', error: e.error }));
+  };
+  r.onend = function() {
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'end' }));
+  };
+
+  window.startListening = function() { r.start(); };
+  window.stopListening  = function() { r.stop(); };
+
+  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ready' }));
+})();
+</script>
+</body>
+</html>`;
+}
+
 // ─── Speech Recognition Hook ──────────────────────────────────────────────────
 
 interface UseSpeechRecognitionOptions {
@@ -56,8 +97,12 @@ interface UseSpeechRecognitionReturn {
   isListening: boolean;
   isAvailable: boolean;
   transcript: string;
-  startListening: () => Promise<void>;
+  startListening: () => void;
   stopListening: () => void;
+  locale: string;
+  onWebViewMessage: (event: { nativeEvent: { data: string } }) => void;
+  webViewRef: React.RefObject<any>;
+  webViewReady: boolean;
 }
 
 export function useSpeechRecognition({
@@ -67,70 +112,67 @@ export function useSpeechRecognition({
 }: UseSpeechRecognitionOptions): UseSpeechRecognitionReturn {
   const [isListening, setIsListening] = useState(false);
   const [isAvailable, setIsAvailable] = useState(false);
+  const [webViewReady, setWebViewReady] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const webViewRef = useRef<any>(null);
   const onResultRef = useRef(onResult);
   const onErrorRef = useRef(onError);
-  useEffect(() => { onResultRef.current = onResult; }, [onResult]);
-  useEffect(() => { onErrorRef.current = onError; }, [onError]);
+  onResultRef.current = onResult;
+  onErrorRef.current = onError;
 
-  // Check availability once on mount
-  useEffect(() => {
-    ExpoSpeechRecognitionModule.isRecognitionAvailable().then((available: boolean) => {
-      setIsAvailable(available);
-    }).catch(() => {
-      setIsAvailable(false);
-    });
+  const locale = STT_LOCALE[language];
 
-    return () => {
-      ExpoSpeechRecognitionModule.abort();
-    };
+  const onWebViewMessage = useCallback((event: { nativeEvent: { data: string } }) => {
+    try {
+      const msg = JSON.parse(event.nativeEvent.data);
+      switch (msg.type) {
+        case 'ready':
+          setWebViewReady(true);
+          setIsAvailable(true);
+          break;
+        case 'unavailable':
+          setIsAvailable(false);
+          break;
+        case 'result':
+          setTranscript(msg.transcript);
+          if (msg.isFinal) {
+            setIsListening(false);
+            onResultRef.current(msg.transcript);
+          }
+          break;
+        case 'error':
+          setIsListening(false);
+          onErrorRef.current?.(msg.error);
+          break;
+        case 'end':
+          setIsListening(false);
+          break;
+      }
+    } catch {}
   }, []);
 
-  // Listen for final results
-  useSpeechRecognitionEvent('result', (event: any) => {
-    const text: string = event.results?.[0]?.transcript ?? '';
-    if (text) {
-      setTranscript(text);
-      if (event.isFinal) {
-        setIsListening(false);
-        onResultRef.current(text);
-      }
-    }
-  });
-
-  // Listen for errors
-  useSpeechRecognitionEvent('error', (event: any) => {
-    setIsListening(false);
-    onErrorRef.current?.(event.error ?? 'unknown error');
-  });
-
-  // Listen for end
-  useSpeechRecognitionEvent('end', () => {
-    setIsListening(false);
-  });
-
-  const startListening = useCallback(async () => {
-    if (!isAvailable) return;
-    try {
-      const { granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      if (!granted) return;
-
-      setTranscript('');
-      setIsListening(true);
-      ExpoSpeechRecognitionModule.start({
-        lang: STT_LOCALE[language],
-        interimResults: true,
-        continuous: false,
-      });
-    } catch {
-      setIsListening(false);
-    }
-  }, [isAvailable, language]);
+  const startListening = useCallback(() => {
+    if (!webViewReady || !webViewRef.current) return;
+    setTranscript('');
+    setIsListening(true);
+    webViewRef.current.injectJavaScript('window.startListening(); true;');
+  }, [webViewReady]);
 
   const stopListening = useCallback(() => {
-    ExpoSpeechRecognitionModule.stop();
+    if (!webViewReady || !webViewRef.current) return;
+    webViewRef.current.injectJavaScript('window.stopListening(); true;');
     setIsListening(false);
-  }, []);
+  }, [webViewReady]);
 
-  return { isListening, isAvailable, transcript, startListening, stopListening };
+  return {
+    isListening,
+    isAvailable,
+    transcript,
+    startListening,
+    stopListening,
+    locale,
+    onWebViewMessage,
+    webViewRef,
+    webViewReady,
+  };
 }
