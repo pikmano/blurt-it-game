@@ -68,9 +68,17 @@ export function useSpeechRecognition({
 
   // Check if native STT is available (true in compiled build, false in Expo Go)
   useEffect(() => {
-    ExpoSpeechRecognitionModule.isRecognitionAvailable()
-      .then(setIsAvailable)
-      .catch(() => setIsAvailable(false));
+    try {
+      const result = ExpoSpeechRecognitionModule.isRecognitionAvailable();
+      // Handle both sync (boolean) and async (Promise) return values
+      if (result && typeof (result as any).then === 'function') {
+        (result as unknown as Promise<boolean>).then(setIsAvailable).catch(() => setIsAvailable(false));
+      } else {
+        setIsAvailable(Boolean(result));
+      }
+    } catch {
+      setIsAvailable(false);
+    }
 
     return () => {
       try { ExpoSpeechRecognitionModule.abort(); } catch {}
