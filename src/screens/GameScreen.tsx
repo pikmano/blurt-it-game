@@ -99,11 +99,11 @@ export function GameScreen({ navigation }: Props) {
   // ─── Speech ───────────────────────────────────────────────────────────────
   const speech = useSpeechRecognition({
     language: settings.language,
-    onResult: useCallback((transcript: string, isFinal: boolean) => {
-      // Only act on final results during playing phase
+    onResult: useCallback((transcript: string) => {
+      // Validate every voice result immediately — don't wait for isFinal
+      // and never put voice results in the text field
       if (phaseRef.current !== 'playing') return;
-      if (!isFinal) return;
-      handleAnswer(transcript);
+      handleVoiceResult(transcript);
     }, []),
   });
 
@@ -180,19 +180,24 @@ export function GameScreen({ navigation }: Props) {
       announcement = player.name;
     }
 
-    if (settings.ttsEnabled) speakText(announcement, settings.language);
+    const beginPlaying = () => {
+      // Small extra buffer so mic doesn't catch the tail of TTS audio
+      setTimeout(() => {
+        turnInProgressRef.current = false;
+        updatePhase('playing');
+        turnStartTimeRef.current = Date.now();
+        timer.start();
+        if (speech.isAvailable) speech.startListening();
+      }, 400);
+    };
 
-    const delay = settings.ttsEnabled ? (isNewTurn ? 2800 : 1200) : ANNOUNCE_DELAY_MS;
-    const id = setTimeout(() => {
-      pendingTurnRef.current  = null;
-      turnInProgressRef.current = false;
-      updatePhase('playing');
-      turnStartTimeRef.current = Date.now();
-      timer.start();
-      // Auto-start voice recognition
-      if (speech.isAvailable) speech.startListening();
-    }, delay);
-    pendingTurnRef.current = id;
+    if (settings.ttsEnabled) {
+      // Start mic ONLY after TTS is done — prevents mic from hearing the announcement
+      speakText(announcement, settings.language, 'normal', beginPlaying);
+    } else {
+      const id = setTimeout(beginPlaying, ANNOUNCE_DELAY_MS);
+      pendingTurnRef.current = id;
+    }
   }, [settings, t, timer, dispatch, speech]);
 
   // ─── Kick off first turn ──────────────────────────────────────────────────
@@ -248,8 +253,23 @@ export function GameScreen({ navigation }: Props) {
     pendingTurnRef.current = id;
   }, [settings, t, timer, speech, dispatch, startTurn]);
 
-  // ─── Answer handler ───────────────────────────────────────────────────────
-  // Wrong answers are silently ignored (shake + clear). Only correct = advance.
+  // ─── Voice result handler ─────────────────────────────────────────────────
+  // Validates each spoken word immediately. Correct = submit. Wrong = ignored silently.
+  const handleVoiceResult = useCallback((transcript: string) => {
+    if (phaseRef.current !== 'playing') return;
+    const result = validateRef.current(transcript);
+    if (result.valid) {
+      timer.stop();
+      speech.stopListening();
+      const elapsed = Date.now() - turnStartTimeRef.current;
+      dispatch({ type: 'CORRECT_ANSWER', payload: { answer: transcript, responseTime: elapsed } });
+      showFeedbackAndAdvance('correct', t.game.correct, true, transcript);
+    }
+    // Wrong voice result → silently ignore, keep listening
+  }, [timer, speech, dispatch, showFeedbackAndAdvance, t]);
+
+  // ─── Typed answer handler ─────────────────────────────────────────────────
+  // Wrong typed answers shake the input. Only correct = advance.
   const handleAnswer = useCallback((answer: string) => {
     if (phaseRef.current !== 'playing') return;
 
@@ -262,7 +282,7 @@ export function GameScreen({ navigation }: Props) {
       dispatch({ type: 'CORRECT_ANSWER', payload: { answer, responseTime: elapsed } });
       showFeedbackAndAdvance('correct', t.game.correct, true, answer);
     } else {
-      // Wrong — shake input and keep going, no foul
+      // Wrong typed answer — shake input, keep going
       shakeAnswerInput();
     }
   }, [timer, speech, dispatch, showFeedbackAndAdvance, t]);

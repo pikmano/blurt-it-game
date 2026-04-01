@@ -36,10 +36,8 @@ export function AnswerInput({
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const inputRef  = useRef<TextInput>(null);
 
-  // Sync interim voice transcript into text field
-  useEffect(() => {
-    if (transcript) setText(transcript);
-  }, [transcript]);
+  // Voice transcript is handled directly in GameScreen — never put in text field
+  // The text field is for manual typing only
 
   // Expose shake trigger via ref so parent can call it
   const shake = () => {
@@ -69,6 +67,11 @@ export function AnswerInput({
       {isSpeechAvailable && (
         <ListeningBadge isListening={isListening} />
       )}
+
+      {/* Live voice transcript preview (read-only) */}
+      {isListening && transcript ? (
+        <Text style={styles.transcriptPreview}>{transcript}</Text>
+      ) : null}
 
       {/* Text input row */}
       <Animated.View style={[styles.row, isRTL && styles.rowRTL, { transform: [{ translateX: shakeAnim }] }]}>
@@ -144,6 +147,10 @@ const styles = StyleSheet.create({
   micDotIdle:   { backgroundColor: '#9CA3AF' },
   badgeText:     { fontSize: 14, fontWeight: '700', color: '#EF4444' },
   badgeTextIdle: { color: '#9CA3AF' },
+  transcriptPreview: {
+    fontSize: 16, fontWeight: '600', color: '#6B7280',
+    textAlign: 'center', fontStyle: 'italic', paddingHorizontal: 20,
+  },
   row: { flexDirection: 'row', width: '100%', gap: 8, paddingHorizontal: 16 },
   rowRTL: { flexDirection: 'row-reverse' },
   input: {

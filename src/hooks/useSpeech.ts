@@ -20,10 +20,16 @@ const STT_LOCALE: Record<Language, string> = {
 
 export type SpeakMood = 'normal' | 'excited' | 'sad';
 
-export function speakText(text: string, language: Language, mood: SpeakMood = 'normal'): void {
+export function speakText(
+  text: string,
+  language: Language,
+  mood: SpeakMood = 'normal',
+  onDone?: () => void,
+): void {
   const options: Speech.SpeechOptions = {
     language: TTS_LOCALE[language],
-    onError: () => {},
+    onError: () => { onDone?.(); },
+    onDone: onDone,
   };
   if (mood === 'excited') { options.pitch = 1.5; options.rate = 1.3; }
   else if (mood === 'sad') { options.pitch = 0.6; options.rate = 0.7; }
@@ -103,7 +109,8 @@ export function useSpeechRecognition({
     const text: string = event.results?.[0]?.transcript ?? '';
     if (!text) return;
     setTranscript(text);
-    onResultRef.current(text, event.isFinal ?? false);
+    // Fire on every result — caller decides what to do with interim vs final
+    onResultRef.current(text, event.isFinal ?? true);
   });
 
   useSpeechRecognitionEvent('error', (event: any) => {
