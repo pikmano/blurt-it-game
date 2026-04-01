@@ -69,21 +69,26 @@ export function useSpeechRecognition({
   const [isAvailable, setIsAvailable] = useState(false);
   const [transcript, setTranscript] = useState('');
 
-  const activeRef   = useRef(false);   // whether we WANT to be listening
-  const langRef     = useRef(language);
-  const onResultRef = useRef(onResult);
-  const onErrorRef  = useRef(onError);
+  const activeRef      = useRef(false);   // whether we WANT to be listening
+  const isAvailableRef = useRef(false);   // sync ref so startListening never reads stale state
+  const langRef        = useRef(language);
+  const onResultRef    = useRef(onResult);
+  const onErrorRef     = useRef(onError);
   useEffect(() => { langRef.current = language; }, [language]);
   onResultRef.current = onResult;
   onErrorRef.current  = onError;
 
-  // Check availability once
+  // Check availability once — update both state and ref
   useEffect(() => {
     try {
       const result = ExpoSpeechRecognitionModule.isRecognitionAvailable();
       if (result && typeof (result as any).then === 'function') {
-        (result as unknown as Promise<boolean>).then(setIsAvailable).catch(() => setIsAvailable(false));
+        (result as unknown as Promise<boolean>).then(v => {
+          isAvailableRef.current = v;
+          setIsAvailable(v);
+        }).catch(() => setIsAvailable(false));
       } else {
+        isAvailableRef.current = Boolean(result);
         setIsAvailable(Boolean(result));
       }
     } catch { setIsAvailable(false); }
@@ -133,7 +138,8 @@ export function useSpeechRecognition({
   // ─── Public API ────────────────────────────────────────────────────────────
 
   const startListening = useCallback(async () => {
-    if (!isAvailable) return;
+    // Use ref — never miss first-run because state hasn't updated yet
+    if (!isAvailableRef.current) return;
     try {
       const { granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
       if (!granted) return;
@@ -142,7 +148,7 @@ export function useSpeechRecognition({
       activeRef.current = true;
       doStart();
     } catch { setIsListening(false); }
-  }, [isAvailable, doStart]);
+  }, [doStart]);
 
   const stopListening = useCallback(() => {
     activeRef.current = false;

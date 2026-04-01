@@ -164,6 +164,7 @@ export function GameScreen({ navigation }: Props) {
     setFeedback(null);
     setCorrectWord('');
     timer.stop();
+    stopSpeaking(); // ensure previous TTS is fully stopped before new announcement
     animateLetter();
 
     // TTS: full announcement only when category+letter changed
@@ -223,19 +224,7 @@ export function GameScreen({ navigation }: Props) {
     timer.stop();
     speech.stopListening();
 
-    if (wasCorrect) {
-      setConfettiKey(k => k + 1);
-      if (settings.ttsEnabled) {
-        // Say "Correct! WORD" with excited voice
-        speakText(`${t.tts.correct} ${word}`, settings.language, 'excited');
-      }
-    } else {
-      if (settings.ttsEnabled) {
-        speakText(t.tts.timeUp, settings.language, 'sad');
-      }
-    }
-
-    const id = setTimeout(() => {
+    const advanceAfterFeedback = () => {
       pendingTurnRef.current = null;
       setFeedback(null);
       setCorrectWord('');
@@ -243,14 +232,31 @@ export function GameScreen({ navigation }: Props) {
       const { config, currentPlayerIndex, currentCycle } = stateRef.current;
       if (!config) return;
 
-      const nextIdx   = (currentPlayerIndex + 1) % config.players.length;
-      const nextCycle = nextIdx === 0 ? currentCycle + 1 : currentCycle;
+      const nextIdx    = (currentPlayerIndex + 1) % config.players.length;
+      const nextCycle  = nextIdx === 0 ? currentCycle + 1 : currentCycle;
       const isGameOver = nextCycle > config.numberOfCycles;
 
       dispatch({ type: 'ADVANCE_TURN' });
       if (!isGameOver) startTurn(wasCorrect, nextIdx);
-    }, RESULT_DISPLAY_MS);
-    pendingTurnRef.current = id;
+    };
+
+    if (settings.ttsEnabled) {
+      // Speak feedback TTS, then advance only after it finishes
+      // so the next turn's TTS doesn't overlap with this one
+      const feedbackText = wasCorrect
+        ? `${t.tts.correct} ${word}`
+        : t.tts.timeUp;
+      const mood = wasCorrect ? 'excited' : 'sad';
+      speakText(feedbackText, settings.language, mood, () => {
+        const id = setTimeout(advanceAfterFeedback, 400);
+        pendingTurnRef.current = id;
+      });
+    } else {
+      const id = setTimeout(advanceAfterFeedback, RESULT_DISPLAY_MS);
+      pendingTurnRef.current = id;
+    }
+
+    if (wasCorrect) setConfettiKey(k => k + 1);
   }, [settings, t, timer, speech, dispatch, startTurn]);
 
   // ─── Voice result handler ─────────────────────────────────────────────────
