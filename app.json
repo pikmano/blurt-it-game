@@ -19,7 +19,8 @@
       "bundleIdentifier": "com.alphaburst.game",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "AlphaBurst needs your microphone to hear your answers.",
-        "NSSpeechRecognitionUsageDescription": "AlphaBurst uses speech recognition to understand your words."
+        "NSSpeechRecognitionUsageDescription": "AlphaBurst uses speech recognition to understand your words.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

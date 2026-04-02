@@ -15,6 +15,7 @@ export interface GameConfig {
   players: PlayerConfig[];
   secondsPerTurn: number; // 10–60
   numberOfCycles: number; // 1–10
+  selectedCategories: Category[];
 }
 
 // ─── Stats ──────────────────────────────────────────────────────────────────

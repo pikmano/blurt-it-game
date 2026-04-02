@@ -9,11 +9,13 @@ export function randomFrom<T>(arr: T[]): T {
 }
 
 /**
- * Returns a random game category.
+ * Returns a random game category from the given pool (defaults to all categories).
  */
-export function randomCategory(): Category {
-  const categories: Category[] = ['animals', 'countries', 'cities', 'plants'];
-  return randomFrom(categories);
+export function randomCategory(categories?: Category[]): Category {
+  const pool: Category[] = categories && categories.length > 0
+    ? categories
+    : ['animals', 'countries', 'cities', 'plants'];
+  return randomFrom(pool);
 }
 
 /**
@@ -26,10 +28,13 @@ export function randomLetter(category: Category, language: Language): string {
 }
 
 /**
- * Picks a random category and a valid letter for it.
+ * Picks a random category (from the optional restricted pool) and a valid letter for it.
  */
-export function randomTurn(language: Language): { category: Category; letter: string } {
-  const category = randomCategory();
+export function randomTurn(
+  language: Language,
+  categories?: Category[]
+): { category: Category; letter: string } {
+  const category = randomCategory(categories);
   const letter = randomLetter(category, language);
   return { category, letter };
 }

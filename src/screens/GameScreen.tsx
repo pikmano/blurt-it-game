@@ -158,7 +158,12 @@ export function GameScreen({ navigation }: Props) {
       category = activeCategoryRef.current;
       letter   = activeLetterRef.current;
     } else {
-      const picked = randomTurn(currentState.config.language);
+      const picked = randomTurn(
+        currentState.config.language,
+        currentState.config.selectedCategories?.length
+          ? currentState.config.selectedCategories
+          : undefined
+      );
       category = picked.category;
       letter   = picked.letter;
       activeCategoryRef.current = category;

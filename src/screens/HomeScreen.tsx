@@ -22,12 +22,6 @@ type Props = {
 
 const { width, height } = Dimensions.get('window');
 
-const CATEGORY_CHIPS = [
-  { emoji: '🐘', label: 'Animals', labelHe: 'בעלי חיים', color: '#FF6B6B' },
-  { emoji: '🌍', label: 'Countries', labelHe: 'מדינות', color: '#4ECDC4' },
-  { emoji: '🏙️', label: 'Cities', labelHe: 'ערים', color: '#45B7D1' },
-  { emoji: '🌿', label: 'Plants', labelHe: 'צמחים', color: '#26de81' },
-];
 
 const BLOBS = [
   { x: -60, y: -40, size: 220, color: '#6C63FF', opacity: 0.55 },
@@ -105,17 +99,7 @@ export function HomeScreen({ navigation }: Props) {
           <Text style={styles.title}>{t.home.title}</Text>
           <Text style={styles.subtitle}>{t.home.subtitle}</Text>
 
-          {/* Category chips */}
-          <View style={styles.chips}>
-            {CATEGORY_CHIPS.map((c) => (
-              <View key={c.label} style={[styles.chip, { backgroundColor: c.color + '33', borderColor: c.color }]}>
-                <Text style={styles.chipEmoji}>{c.emoji}</Text>
-                <Text style={[styles.chipLabel, { color: c.color }]}>
-                  {settings.language === 'he' ? c.labelHe : c.label}
-                </Text>
-              </View>
-            ))}
-          </View>
+
         </View>
 
         {/* Buttons */}
@@ -283,29 +267,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
   },
-  chips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 12,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1.5,
-  },
-  chipEmoji: {
-    fontSize: 15,
-  },
-  chipLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
+
   actions: {
     width: '100%',
     gap: 12,

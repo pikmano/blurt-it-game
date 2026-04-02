@@ -10,10 +10,25 @@ import {
   Alert,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList, GameConfig, PlayerConfig } from '../types';
+import { RootStackParamList, GameConfig, PlayerConfig, Category } from '../types';
 import { useAppSettings } from '../context/AppSettingsContext';
 import { useGame } from '../context/GameContext';
 import { generateId } from '../utils/randomPicker';
+
+const FREE_CATEGORIES: Category[] = ['animals', 'countries', 'cities'];
+
+const CATEGORY_INFO: {
+  id: Category;
+  emoji: string;
+  en: string;
+  he: string;
+  locked: boolean;
+}[] = [
+  { id: 'animals',   emoji: '🐾', en: 'Animals',   he: 'בעלי חיים', locked: false },
+  { id: 'countries', emoji: '🌍', en: 'Countries', he: 'מדינות',     locked: false },
+  { id: 'cities',    emoji: '🏙️', en: 'Cities',    he: 'ערים',       locked: false },
+  { id: 'plants',    emoji: '🌿', en: 'Plants',    he: 'צמחים',      locked: true  },
+];
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Setup'>;
@@ -80,6 +95,20 @@ export function SetupScreen({ navigation }: Props) {
   const [playerNames, setPlayerNames] = useState<string[]>(
     Array.from({ length: 8 }, (_, i) => '')
   );
+  const [selectedCategories, setSelectedCategories] = useState<Category[]>(
+    ['animals', 'countries', 'cities']
+  );
+
+  const toggleCategory = (id: Category) => {
+    setSelectedCategories(prev => {
+      if (prev.includes(id)) {
+        // Don't allow deselecting the last category
+        if (prev.length === 1) return prev;
+        return prev.filter(c => c !== id);
+      }
+      return [...prev, id];
+    });
+  };
 
   const updateName = (index: number, name: string) => {
     setPlayerNames(prev => {
@@ -90,6 +119,13 @@ export function SetupScreen({ navigation }: Props) {
   };
 
   const handleStart = () => {
+    // Validate at least one free category is selected
+    const freeSelected = selectedCategories.filter(c => FREE_CATEGORIES.includes(c));
+    if (freeSelected.length === 0) {
+      Alert.alert('', 'Please select at least one category.');
+      return;
+    }
+
     // Validate player names
     const names = playerNames.slice(0, numPlayers);
     const filled = names.map((n, i) => n.trim() || `${t.setup.playerName(i + 1)}`);
@@ -104,6 +140,7 @@ export function SetupScreen({ navigation }: Props) {
       players,
       secondsPerTurn,
       numberOfCycles,
+      selectedCategories: freeSelected,
     };
 
     dispatch({ type: 'START_GAME', payload: config });
@@ -172,6 +209,56 @@ export function SetupScreen({ navigation }: Props) {
             />
           </View>
         ))}
+
+        {/* Category selection */}
+        <Text style={[styles.sectionHeader, isRTL && styles.rtlText]}>
+          {settings.language === 'he' ? 'קטגוריות' : 'Categories'}
+        </Text>
+        <View style={styles.categoryGrid}>
+          {CATEGORY_INFO.map((cat) => {
+            const isSelected = selectedCategories.includes(cat.id);
+            const label = settings.language === 'he' ? cat.he : cat.en;
+            if (cat.locked) {
+              return (
+                <TouchableOpacity
+                  key={cat.id}
+                  style={[styles.categoryCard, styles.categoryCardLocked]}
+                  onPress={() =>
+                    Alert.alert(
+                      '🌿 Plants Pack — Coming Soon!',
+                      'Unlock the Plants category in a future update.'
+                    )
+                  }
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.categoryEmoji}>🔒</Text>
+                  <Text style={[styles.categoryLabel, styles.categoryLabelLocked]}>{label}</Text>
+                </TouchableOpacity>
+              );
+            }
+            return (
+              <TouchableOpacity
+                key={cat.id}
+                style={[
+                  styles.categoryCard,
+                  isSelected ? styles.categoryCardSelected : styles.categoryCardUnselected,
+                ]}
+                onPress={() => toggleCategory(cat.id)}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.categoryEmoji}>{cat.emoji}</Text>
+                <Text
+                  style={[
+                    styles.categoryLabel,
+                    isSelected ? styles.categoryLabelSelected : styles.categoryLabelUnselected,
+                  ]}
+                >
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
         {/* Start button */}
         <TouchableOpacity style={styles.startBtn} onPress={handleStart} activeOpacity={0.85}>
@@ -281,6 +368,53 @@ const styles = StyleSheet.create({
     color: '#111827',
     borderWidth: 1,
     borderColor: '#E5E7EB',
+  },
+  // Category grid
+  categoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  categoryCard: {
+    width: '47%',
+    minHeight: 90,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderWidth: 2,
+  },
+  categoryCardSelected: {
+    backgroundColor: '#6C63FF',
+    borderColor: '#6C63FF',
+  },
+  categoryCardUnselected: {
+    backgroundColor: '#F3F4F6',
+    borderColor: '#E5E7EB',
+  },
+  categoryCardLocked: {
+    backgroundColor: '#F3F4F6',
+    borderColor: '#E5E7EB',
+    opacity: 0.55,
+  },
+  categoryEmoji: {
+    fontSize: 24,
+  },
+  categoryLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  categoryLabelSelected: {
+    color: '#fff',
+  },
+  categoryLabelUnselected: {
+    color: '#6B7280',
+  },
+  categoryLabelLocked: {
+    color: '#9CA3AF',
   },
   // Start button
   startBtn: {
