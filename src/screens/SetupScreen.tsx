@@ -14,6 +14,8 @@ import { RootStackParamList, GameConfig, PlayerConfig, Category } from '../types
 import { useAppSettings } from '../context/AppSettingsContext';
 import { useGame } from '../context/GameContext';
 import { generateId } from '../utils/randomPicker';
+import { usePurchase } from '../context/PurchaseContext';
+import { PurchaseModal } from '../components/PurchaseModal';
 
 const FREE_CATEGORIES: Category[] = ['animals', 'countries', 'cities'];
 
@@ -87,6 +89,7 @@ function Stepper({
 export function SetupScreen({ navigation }: Props) {
   const { strings, settings, isRTL } = useAppSettings();
   const { dispatch } = useGame();
+  const { plantsUnlocked } = usePurchase();
   const t = strings;
 
   const [numPlayers, setNumPlayers] = useState(2);
@@ -98,6 +101,7 @@ export function SetupScreen({ navigation }: Props) {
   const [selectedCategories, setSelectedCategories] = useState<Category[]>(
     ['animals', 'countries', 'cities']
   );
+  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
 
   const toggleCategory = (id: Category) => {
     setSelectedCategories(prev => {
@@ -218,17 +222,14 @@ export function SetupScreen({ navigation }: Props) {
           {CATEGORY_INFO.map((cat) => {
             const isSelected = selectedCategories.includes(cat.id);
             const label = settings.language === 'he' ? cat.he : cat.en;
-            if (cat.locked) {
+            // Plants: locked until purchased
+            const isLocked = cat.locked && !plantsUnlocked;
+            if (isLocked) {
               return (
                 <TouchableOpacity
                   key={cat.id}
                   style={[styles.categoryCard, styles.categoryCardLocked]}
-                  onPress={() =>
-                    Alert.alert(
-                      '🌿 Plants Pack — Coming Soon!',
-                      'Unlock the Plants category in a future update.'
-                    )
-                  }
+                  onPress={() => setShowPurchaseModal(true)}
                   activeOpacity={0.7}
                 >
                   <Text style={styles.categoryEmoji}>🔒</Text>
@@ -265,6 +266,13 @@ export function SetupScreen({ navigation }: Props) {
           <Text style={styles.startBtnText}>{t.setup.startGame}</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Plants Pack purchase sheet */}
+      <PurchaseModal
+        visible={showPurchaseModal}
+        onClose={() => setShowPurchaseModal(false)}
+        language={settings.language}
+      />
     </SafeAreaView>
   );
 }
