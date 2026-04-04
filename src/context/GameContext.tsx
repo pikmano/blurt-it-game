@@ -12,6 +12,7 @@ import {
   TurnRecord,
   Category,
 } from '../types';
+import { getAliasLookup } from '../data/aliases';
 
 // ─── Initial State ────────────────────────────────────────────────────────────
 
@@ -94,6 +95,13 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       const playerId = config.players[currentPlayerIndex].id;
       const playerName = config.players[currentPlayerIndex].name;
       const normalized = answer.toLowerCase().trim();
+      // Resolve canonical so aliases of the same word block each other
+      const aliasLookup = config ? getAliasLookup(config.language, currentCategory) : new Map();
+      const canonical = aliasLookup.get(normalized) ?? normalized;
+      // Store both so neither the alias nor the canonical can score again
+      const newUsedWords = canonical !== normalized
+        ? [...state.usedWords, normalized, canonical]
+        : [...state.usedWords, normalized];
 
       const turn: TurnRecord = {
         playerId,
@@ -124,7 +132,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       return {
         ...state,
         turns: [...state.turns, turn],
-        usedWords: [...state.usedWords, normalized],
+        usedWords: newUsedWords,
         playerStats: updatedStats,
       };
     }

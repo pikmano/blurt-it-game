@@ -1,4 +1,5 @@
 import { Category, Language, ValidationResult, FoulReason } from '../types';
+import { getAliasLookup } from '../data/aliases';
 
 // ─── Word List Imports ────────────────────────────────────────────────────────
 
@@ -70,6 +71,12 @@ const byLetterMaps: Record<Language, Record<Category, ByLetterMap>> = {
 
 /**
  * Validates a player's answer. Returns within 1ms (pure set/string ops).
+ *
+ * Alias resolution:
+ *   - If the player says "usa" for letter U  → resolves to "united states" → valid ✓
+ *   - If the player says "america" for A     → resolves to "united states" → valid ✓
+ *   - The letter check always uses WHAT THE PLAYER SAID, not the canonical form.
+ *   - usedWords tracks the canonical form so "usa" and "united states" can't both score.
  */
 export function validateWord(
   word: string,
@@ -84,24 +91,36 @@ export function validateWord(
     return { valid: false, reason: 'not_in_category' };
   }
 
-  // 1. Check first letter matches
+  // 1. Check first letter of what the player said
   const expectedLetter = letter.toLowerCase();
   if (normalized[0] !== expectedLetter) {
     return { valid: false, reason: 'wrong_letter' };
   }
 
-  // 2. Check word exists in category
   const wordSet = wordSets[language][category];
-  if (!wordSet.has(normalized)) {
-    return { valid: false, reason: 'not_in_category' };
+  const aliasLookup = getAliasLookup(language, category);
+
+  // 2a. Direct match in word list
+  if (wordSet.has(normalized)) {
+    // Check against canonical form so aliases of the same word block each other
+    const canonical = aliasLookup.get(normalized) ?? normalized;
+    if (usedWords.includes(normalized) || usedWords.includes(canonical)) {
+      return { valid: false, reason: 'already_used' };
+    }
+    return { valid: true, reason: null };
   }
 
-  // 3. Check word hasn't been used already
-  if (usedWords.includes(normalized)) {
-    return { valid: false, reason: 'already_used' };
+  // 2b. Alias match — player said a synonym
+  const canonical = aliasLookup.get(normalized);
+  if (canonical && wordSet.has(canonical)) {
+    // Block if canonical or ANY alias of it was already used
+    if (usedWords.includes(canonical) || usedWords.includes(normalized)) {
+      return { valid: false, reason: 'already_used' };
+    }
+    return { valid: true, reason: null };
   }
 
-  return { valid: true, reason: null };
+  return { valid: false, reason: 'not_in_category' };
 }
 
 /**
