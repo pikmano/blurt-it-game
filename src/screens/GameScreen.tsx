@@ -277,16 +277,26 @@ export function GameScreen({ navigation }: Props) {
     if (phaseRef.current !== 'playing') return;
     if (turnSubmittedRef.current) return; // guard against double-submission
 
-    const words = transcript.trim().split(/\s+/).filter(Boolean);
-    for (const word of words) {
-      const result = validateRef.current(word);
+    const tokens = transcript.trim().split(/\s+/).filter(Boolean);
+
+    // Build candidates: multi-word phrases (up to 5 words) first, then single words.
+    // This lets "United States" match before trying "United" alone.
+    const candidates: string[] = [];
+    for (let len = Math.min(tokens.length, 5); len >= 1; len--) {
+      for (let start = 0; start <= tokens.length - len; start++) {
+        candidates.push(tokens.slice(start, start + len).join(' '));
+      }
+    }
+
+    for (const candidate of candidates) {
+      const result = validateRef.current(candidate);
       if (result.valid) {
         turnSubmittedRef.current = true;
         timer.stop();
         speech.stopListening();
         const elapsed = Date.now() - turnStartTimeRef.current;
-        dispatch({ type: 'CORRECT_ANSWER', payload: { answer: word, responseTime: elapsed } });
-        showFeedbackAndAdvance('correct', t.game.correct, true, word);
+        dispatch({ type: 'CORRECT_ANSWER', payload: { answer: candidate, responseTime: elapsed } });
+        showFeedbackAndAdvance('correct', t.game.correct, true, candidate);
         return;
       }
     }
