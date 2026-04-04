@@ -3,9 +3,9 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   Animated,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, Category } from '../types';
 import { useAppSettings } from '../context/AppSettingsContext';
@@ -14,6 +14,7 @@ import { useTimer } from '../hooks/useTimer';
 import { useSpeechRecognition, speakText, stopSpeaking } from '../hooks/useSpeech';
 import { useValidation } from '../hooks/useValidation';
 import { randomTurn } from '../utils/randomPicker';
+import { getRemainingWords } from '../utils/validation';
 import { CircularTimer } from '../components/CircularTimer';
 import { AnswerInput, shakeAnswerInput } from '../components/AnswerInput';
 import { FeedbackOverlay } from '../components/FeedbackOverlay';
@@ -50,6 +51,7 @@ export function GameScreen({ navigation }: Props) {
   const [feedback, setFeedback] = useState<FeedbackType>(null);
   const [feedbackLabel, setFeedbackLabel] = useState('');
   const [correctWord, setCorrectWord] = useState('');
+  const [remainingWords, setRemainingWords] = useState<string[]>([]);
   const [confettiKey, setConfettiKey] = useState(0);
 
   // Letter bounce animation
@@ -232,6 +234,18 @@ export function GameScreen({ navigation }: Props) {
     setFeedback(type);
     setFeedbackLabel(label);
     setCorrectWord(word);
+    if (type === 'timeout' && activeCategoryRef.current && activeLetterRef.current) {
+      const words = getRemainingWords(
+        activeCategoryRef.current,
+        activeLetterRef.current,
+        settings.language,
+        stateRef.current.usedWords,
+        20
+      );
+      setRemainingWords(words);
+    } else {
+      setRemainingWords([]);
+    }
     stopSpeaking();
     timer.stop();
     speech.stopListening();
@@ -346,7 +360,7 @@ export function GameScreen({ navigation }: Props) {
   const letterRotation = letterRotate.interpolate({ inputRange: [-20, 0], outputRange: ['-20deg', '0deg'] });
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <ConfettiAnimation key={confettiKey} />
 
       {/* Progress bar */}
@@ -423,7 +437,12 @@ export function GameScreen({ navigation }: Props) {
               onSubmit={handleAnswer}
               isListening={speech.isListening}
               isSpeechAvailable={speech.isAvailable}
-              transcript={speech.transcript}
+              transcript={
+                // Show only the last spoken word — not the whole accumulated phrase
+                speech.transcript
+                  ? speech.transcript.trim().split(/\s+/).pop() ?? ''
+                  : ''
+              }
               onStopListening={speech.stopListening}
               placeholder={t.game.speakOrType}
               submitLabel={t.game.submit}
@@ -438,6 +457,9 @@ export function GameScreen({ navigation }: Props) {
         label={feedbackLabel}
         streak={streak}
         correctWord={correctWord}
+        remainingWords={remainingWords}
+        letter={activeLetterRef.current ?? ''}
+        isRTL={isRTL}
       />
     </SafeAreaView>
   );

@@ -132,6 +132,31 @@ export function getValidLetters(category: Category, language: Language): string[
 }
 
 /**
+ * Returns all valid words for the given category, letter, and language
+ * that haven't been used yet. Excludes alias-only entries (only canonical words).
+ * Capped at maxResults to avoid overwhelming the UI.
+ */
+export function getRemainingWords(
+  category: Category,
+  letter: string,
+  language: Language,
+  usedWords: string[],
+  maxResults = 20
+): string[] {
+  const map = byLetterMaps[language][category];
+  const key = letter.toLowerCase();
+  const candidates = map[key] ?? [];
+  const usedSet = new Set(usedWords.map(w => w.toLowerCase()));
+  const results: string[] = [];
+  for (const word of candidates) {
+    if (!usedSet.has(word) && results.length < maxResults) {
+      results.push(word);
+    }
+  }
+  return results;
+}
+
+/**
  * Returns a human-readable label for a foul reason.
  */
 export function foulLabel(reason: FoulReason): string {

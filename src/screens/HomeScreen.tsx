@@ -166,12 +166,6 @@ export function HomeScreen({ navigation }: Props) {
               onChange={setSoundEnabled}
               isRTL={isRTL}
             />
-            <SettingRow
-              label={t.settings.tts}
-              value={settings.ttsEnabled}
-              onChange={setTtsEnabled}
-              isRTL={isRTL}
-            />
 
             <Text style={[styles.settingLabel, isRTL && styles.rtlText]}>
               {t.settings.language}
