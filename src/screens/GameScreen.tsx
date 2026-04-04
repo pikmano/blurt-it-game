@@ -3,9 +3,9 @@ import {
   View,
   Text,
   StyleSheet,
+  SafeAreaView,
   Animated,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, Category } from '../types';
 import { useAppSettings } from '../context/AppSettingsContext';
@@ -360,7 +360,7 @@ export function GameScreen({ navigation }: Props) {
   const letterRotation = letterRotate.interpolate({ inputRange: [-20, 0], outputRange: ['-20deg', '0deg'] });
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safe}>
       <ConfettiAnimation key={confettiKey} />
 
       {/* Progress bar */}
@@ -503,5 +503,5 @@ const styles = StyleSheet.create({
   divider: { width: 1, height: 70, backgroundColor: '#E5E7EB' },
   announcingPill: { borderRadius: 16, paddingHorizontal: 20, paddingVertical: 12, borderWidth: 1.5 },
   announcingText: { fontWeight: '700', fontSize: 16, textAlign: 'center' },
-  inputSection: { width: '100%' },
+  inputSection: { width: '100%', paddingBottom: 24 },
 });
