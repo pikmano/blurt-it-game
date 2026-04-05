@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 type FeedbackType = 'correct' | 'timeout' | null;
 
@@ -11,6 +11,7 @@ interface FeedbackOverlayProps {
   remainingWords?: string[];  // shown when feedback === 'timeout'
   letter?: string;            // shown in timeout header
   isRTL?: boolean;
+  onProceed?: () => void;     // called when player taps Proceed (timeout only)
 }
 
 const CONFIGS: Record<NonNullable<FeedbackType>, { bg: string; icon: string; particle: string }> = {
@@ -21,7 +22,7 @@ const CONFIGS: Record<NonNullable<FeedbackType>, { bg: string; icon: string; par
 const STREAK_MESSAGES = ['', '', '🔥 x2!', '🔥 x3!', '⚡ x4!', '⚡ x5!', '💥 ON FIRE!'];
 
 export function FeedbackOverlay({
-  feedback, label, streak = 0, correctWord, remainingWords = [], letter = '', isRTL = false,
+  feedback, label, streak = 0, correctWord, remainingWords = [], letter = '', isRTL = false, onProceed,
 }: FeedbackOverlayProps) {
   const opacity  = useRef(new Animated.Value(0)).current;
   const scale    = useRef(new Animated.Value(0.3)).current;
@@ -91,7 +92,7 @@ export function FeedbackOverlay({
   return (
     <Animated.View
       style={[StyleSheet.absoluteFill, styles.overlay, { backgroundColor: cfg.bg, opacity }]}
-      pointerEvents="none"
+      pointerEvents={showWords ? 'box-none' : 'none'}
     >
       {/* Burst particles */}
       {particles.map((p, i) => (
@@ -137,6 +138,13 @@ export function FeedbackOverlay({
               ))}
             </ScrollView>
           </Animated.View>
+
+          {/* Proceed button — player taps when ready for next turn */}
+          <TouchableOpacity style={styles.proceedBtn} onPress={onProceed} activeOpacity={0.85}>
+            <Text style={styles.proceedText}>
+              {isRTL ? '▶  המשך' : '▶  Next Round'}
+            </Text>
+          </TouchableOpacity>
         </View>
       ) : (
         /* ── Correct / empty timeout: centered ── */
@@ -246,4 +254,20 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.3)',
   },
   wordChipText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  proceedBtn: {
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    borderRadius: 18,
+    paddingVertical: 16,
+    paddingHorizontal: 48,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.6)',
+    alignSelf: 'center',
+    marginTop: 4,
+  },
+  proceedText: {
+    color: '#fff',
+    fontWeight: '900',
+    fontSize: 20,
+    letterSpacing: 0.5,
+  },
 });

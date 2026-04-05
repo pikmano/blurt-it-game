@@ -73,6 +73,7 @@ export function GameScreen({ navigation }: Props) {
   const pendingTurnRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const gameStartedRef     = useRef(false);
   const turnInProgressRef  = useRef(false);
+  const proceedFnRef       = useRef<(() => void) | null>(null);
   // Prevents double-submission (voice + timer firing simultaneously, or voice firing twice)
   const turnSubmittedRef   = useRef(false);
 
@@ -266,24 +267,36 @@ export function GameScreen({ navigation }: Props) {
       if (!isGameOver) startTurn(wasCorrect, nextIdx);
     };
 
-    if (settings.ttsEnabled) {
-      // Speak feedback TTS, then advance only after it finishes
-      // so the next turn's TTS doesn't overlap with this one
-      const feedbackText = wasCorrect
-        ? `${t.tts.correct} ${word}`
-        : t.tts.timeUp;
-      const mood = wasCorrect ? 'excited' : 'sad';
-      speakText(feedbackText, settings.language, mood, () => {
+    if (!wasCorrect) {
+      // Timeout: play TTS then wait for player to tap Proceed
+      proceedFnRef.current = advanceAfterFeedback;
+      if (settings.ttsEnabled) {
+        speakText(t.tts.timeUp, settings.language, 'sad', () => {});
+      }
+    } else if (settings.ttsEnabled) {
+      // Correct: play TTS then auto-advance
+      proceedFnRef.current = null;
+      const feedbackText = `${t.tts.correct} ${word}`;
+      speakText(feedbackText, settings.language, 'excited', () => {
         const id = setTimeout(advanceAfterFeedback, 400);
         pendingTurnRef.current = id;
       });
     } else {
+      proceedFnRef.current = null;
       const id = setTimeout(advanceAfterFeedback, RESULT_DISPLAY_MS);
       pendingTurnRef.current = id;
     }
 
     if (wasCorrect) setConfettiKey(k => k + 1);
   }, [settings, t, timer, speech, dispatch, startTurn]);
+
+  // Called when player taps Proceed on the timeout screen
+  const handleProceed = useCallback(() => {
+    if (proceedFnRef.current) {
+      proceedFnRef.current();
+      proceedFnRef.current = null;
+    }
+  }, []);
 
   // ─── Voice result handler ─────────────────────────────────────────────────
   // Splits transcript into individual words — if ANY word is correct, take it.
@@ -460,6 +473,7 @@ export function GameScreen({ navigation }: Props) {
         remainingWords={remainingWords}
         letter={activeLetterRef.current ?? ''}
         isRTL={isRTL}
+        onProceed={handleProceed}
       />
     </SafeAreaView>
   );
